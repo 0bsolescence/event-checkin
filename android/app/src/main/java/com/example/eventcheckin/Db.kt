@@ -11,8 +11,8 @@ import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Local SQLite store — the Android twin of the Windows app's Db.cs, schema and
- * semantics kept byte-for-byte compatible. Privacy contract: the raw badge UID
+ * Local SQLite store — the Android twin of the Windows app's Db.cs, same
+ * schema and semantics. Privacy contract: the raw badge UID
  * is NEVER stored — only a salted SHA-256 hash, so taps can be matched to
  * enrolled names without the database ever containing a credential number.
  * Attendance rows are append-only from the UI.
@@ -64,12 +64,21 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
             if (c.moveToFirst()) c.getString(0) else null
         }
 
+    /** Insert-or-update, never REPLACE: with foreign keys enforced, REPLACE
+     *  deletes an existing people row that attendance may already reference,
+     *  which would throw instead of re-enrolling. */
     fun enroll(uidHash: String, name: String) {
-        writableDatabase.insertWithOnConflict("people", null, ContentValues().apply {
+        val inserted = writableDatabase.insertWithOnConflict("people", null, ContentValues().apply {
             put("uid_hash", uidHash)
             put("name", name)
             put("enrolled_at", now())
-        }, SQLiteDatabase.CONFLICT_REPLACE)
+        }, SQLiteDatabase.CONFLICT_IGNORE)
+        if (inserted == -1L) {
+            writableDatabase.update(
+                "people",
+                ContentValues().apply { put("name", name) },
+                "uid_hash=?", arrayOf(uidHash))
+        }
     }
 
     fun createEvent(name: String): Long =
@@ -109,7 +118,8 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
         }
 
     /** Audit export: name, event, timestamp — nothing else leaves the device.
-     *  Identical layout to the Windows CSV: CRLF rows, quoted cells, TOTAL row. */
+     *  Same layout as the Windows CSV (CRLF rows, quoted cells, TOTAL row);
+     *  timestamps differ from .NET's in fractional-second precision. */
     fun buildCsv(eventId: Long, eventName: String): String {
         val rows = attendance(eventId)
         val sb = StringBuilder("Name,Event,CheckedInAt\r\n")

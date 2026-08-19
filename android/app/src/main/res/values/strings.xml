@@ -28,4 +28,5 @@
 
     <string name="exported">Attendance exported.</string>
     <string name="export_cancelled">Export cancelled.</string>
+    <string name="export_failed">Export FAILED — nothing was written: %1$s</string>
 </resources>

@@ -24,8 +24,10 @@ pinned from documentation, not resolved against a repository.
   each new event.
 - **CSV export**: `Name,Event,CheckedInAt` + a `TOTAL HEADCOUNT: n` row, CRLF,
   quoted cells, formula-neutralized (a leading `=` `+` `-` `@` gets an
-  apostrophe so Excel renders text, not a formula). Same bytes-on-the-wire
-  format as the Windows export.
+  apostrophe so Excel renders text, not a formula). Same schema and escaping
+  as the Windows export — equivalent, not byte-identical: the timestamps'
+  fractional-second precision differs between .NET's `"o"` format and Java's
+  `ISO_OFFSET_DATE_TIME`.
 - **Export path**: Storage Access Framework save-as dialog — the user picks
   where the file lands (Drive, Downloads, USB). No storage permission exists
   or is needed, and SAF uniquifies filenames so an earlier audit snapshot is
@@ -38,7 +40,9 @@ pinned from documentation, not resolved against a repository.
   DB). Same honest limit as the Windows build: short 4-byte UID spaces are
   brute-forceable offline by anyone who obtains the DB file, so the hash
   prevents casual disclosure, not determined recovery. Treat the app's data
-  as sensitive; `allowBackup="false"` keeps it off device/cloud backups.
+  as sensitive; `allowBackup="false"` reduces its exposure by opting out of
+  standard Android backup — it does not control every OEM device-to-device
+  transfer path, so it lowers the surface rather than eliminating it.
 - The salt is **per-install**: an Android install and a Windows install (or
   two Android devices) never share enrollments and cannot link records to
   each other. Deliberate — each device is its own island.

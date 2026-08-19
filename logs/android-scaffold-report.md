@@ -19,10 +19,10 @@
 | Schema: meta/people/events/attendance + `UNIQUE(event_id, uid_hash)` | Identical DDL, plain `SQLiteOpenHelper` (chosen over Room — lighter to review, brief's call) |
 | Duplicate tap: catch extended code 2067 only | Catch `SQLiteConstraintException` only when message says `UNIQUE constraint failed`; FK/NOT-NULL still surface (Android hides extended codes — noted in comment) |
 | Enroll-on-first-tap dialog; blank/cancel → "Enrollment cancelled." | Identical flow and wording; check-in re-reads the selected event after the dialog |
-| CSV `Name,Event,CheckedInAt` CRLF + `TOTAL HEADCOUNT` row, formula-neutralized cells (= + - @ → leading apostrophe), never overwrite | Identical bytes; delivered via SAF `CreateDocument` (system save-as, uniquifies on collision, zero storage permission) |
+| CSV `Name,Event,CheckedInAt` CRLF + `TOTAL HEADCOUNT` row, formula-neutralized cells (= + - @ → leading apostrophe), never overwrite | Same schema and escaping — equivalent, not byte-identical (timestamp fractional-second precision differs between .NET `"o"` and `ISO_OFFSET_DATE_TIME`); delivered via SAF `CreateDocument` (system save-as, uniquifies on collision, zero storage permission) |
 | Local-only, no network code | **Manifest requests only `android.permission.NFC`; `INTERNET` absent — the absence is the privacy claim**, verifiable with `aapt dump permissions` |
 
-Extras consistent with the contract: `allowBackup="false"` (salt+hashes stay off backups); brand surface confined to `colors.xml` (3 colors) + `app_name` — theme-file-ready, ships neutral, no agency branding; `applicationId` is the deliberate placeholder `com.example.eventcheckin` (Play rejects it, forcing the permanent-identifier decision before any submission).
+Extras consistent with the contract: `allowBackup="false"` (opts out of standard Android backup — reduces off-device exposure, does not govern every OEM device-transfer path); brand surface confined to `colors.xml` (3 colors) + `app_name` — theme-file-ready, ships neutral, no agency branding; `applicationId` is the deliberate placeholder `com.example.eventcheckin` (Play rejects it, forcing the permanent-identifier decision before any submission).
 
 ### Verification checklist (in android/README.md)
 
@@ -31,6 +31,16 @@ Mirrors the Windows one: compile gate first, then the **UID-stability gate flagg
 ## Incident (caught and corrected)
 
 My first commit (`9abb5c2`, deleted) accidentally swept in **wpf-raven's staged-but-uncommitted work** (LICENSE/NOTICE, MainWindow.cs, Theme.cs, themes/, README edits) — `git add android/` stacked onto their populated index. Corrected immediately: `git reset --soft HEAD~1`, then `git commit -- android/`. Verified postcondition: `git show --stat 40ed6d9` lists exactly the 15 android files; `git status` shows the WPF work re-staged and untouched. wpf-raven should be aware their staging area was disturbed-and-restored in that window.
+
+## Round 2 — codex audit fixes (2026-08-19, second commit)
+
+All 3 P2s and 2 P3 claim problems fixed; still UNCOMPILED-honest, status stamps intact.
+
+1. **Stacked enroll dialogs + destructive re-enroll (P2).** Added a `tapBusy` flag in MainActivity: taps are ignored while an enroll dialog is open, cleared on every dialog outcome (OK, cancel, dismiss). Independently, `Db.enroll` no longer uses `CONFLICT_REPLACE` — with foreign keys enforced, REPLACE deletes a people row that attendance may reference and throws. Now `CONFLICT_IGNORE` + `UPDATE name` on conflict: never deletes a referenced row.
+2. **False "Exported" on failed write (P2).** The SAF result callback now treats a null `openOutputStream` as failure and wraps the write in try/catch; failure reports "Export FAILED — nothing was written: …" (new string resource), success is only claimed after the write completes.
+3. **pendingCsv lost across recreation (P2).** `pendingCsv` is persisted via `onSaveInstanceState` / restored in `onCreate`, so a SAF picker that outlives the activity still finds its content.
+4. **"Same bytes-on-the-wire" CSV claim (P3).** Softened everywhere (README, Db.kt comments, this report): same schema and escaping, equivalent not byte-identical — .NET `"o"` and Java `ISO_OFFSET_DATE_TIME` differ in fractional-second precision.
+5. **allowBackup=false overclaim (P3).** Softened in README, manifest comment, and this report: it opts out of standard Android backup and reduces exposure; it does not control every OEM device-to-device transfer path.
 
 ## Not done / open
 

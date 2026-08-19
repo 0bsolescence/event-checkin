@@ -46,7 +46,13 @@ class MainActivity : AppCompatActivity() {
     private var eventId: Long? = null
     private var eventName: String? = null
 
+    // True while an enroll dialog is open: further taps are ignored so two
+    // quick unknown-badge reads cannot stack dialogs.
+    private var tapBusy = false
+
     // CSV content built at click time, written when the SAF picker returns.
+    // Saved in onSaveInstanceState: the activity can be recreated while the
+    // picker is open, and the result callback must still find the content.
     private var pendingCsv: String? = null
     private val exportLauncher =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
@@ -56,14 +62,23 @@ class MainActivity : AppCompatActivity() {
                 status.text = getString(R.string.export_cancelled)
                 return@registerForActivityResult
             }
-            contentResolver.openOutputStream(uri)?.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
-            status.text = getString(R.string.exported)
-            Toast.makeText(this, R.string.exported, Toast.LENGTH_SHORT).show()
+            // "Exported" only after a verified write — a null stream or a
+            // throwing write must report failure, never success.
+            try {
+                val out = contentResolver.openOutputStream(uri)
+                    ?: throw java.io.IOException("resolver returned no stream")
+                out.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+                status.text = getString(R.string.exported)
+                Toast.makeText(this, R.string.exported, Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                status.text = getString(R.string.export_failed, e.localizedMessage ?: e.javaClass.simpleName)
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        pendingCsv = savedInstanceState?.getString(KEY_PENDING_CSV)
 
         db = Db(this)
         beeper = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
@@ -117,6 +132,11 @@ class MainActivity : AppCompatActivity() {
         nfc?.disableReaderMode(this)
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingCsv?.let { outState.putString(KEY_PENDING_CSV, it) }
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         beeper?.release()
@@ -124,6 +144,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun onTap(tag: Tag) {
+        if (tapBusy) return
         val uid = tag.id
         if (uid == null || uid.isEmpty()) {
             status.text = getString(R.string.status_unreadable)
@@ -138,7 +159,9 @@ class MainActivity : AppCompatActivity() {
         if (known != null) {
             checkIn(hash, known)
         } else {
+            tapBusy = true
             prompt(getString(R.string.enroll_title), getString(R.string.enroll_message)) { name ->
+                tapBusy = false
                 if (name.isNullOrBlank()) {
                     status.text = getString(R.string.enrollment_cancelled)
                 } else {
@@ -227,5 +250,9 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel) { _, _ -> onResult(null) }
             .setOnCancelListener { onResult(null) }
             .show()
+    }
+
+    private companion object {
+        const val KEY_PENDING_CSV = "pending_csv"
     }
 }
