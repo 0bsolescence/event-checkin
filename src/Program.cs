@@ -1,3 +1,5 @@
+using System.Windows;
+
 namespace BadgeCheckIn;
 
 internal static class Program
@@ -5,7 +7,7 @@ internal static class Program
     [STAThread]
     private static void Main()
     {
-        ApplicationConfiguration.Initialize();
-        Application.Run(new MainForm());
+        var app = new Application { ShutdownMode = ShutdownMode.OnMainWindowClose };
+        app.Run(new MainWindow());
     }
 }

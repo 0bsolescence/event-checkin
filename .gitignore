@@ -5,3 +5,6 @@ src/obj/
 # runtime data — never commit attendance or enrollment data
 *.db
 *.csv
+
+# local branding — organization themes stay on the machine, never in the repo
+themes/local/

@@ -1,18 +1,17 @@
-# Badge Check-In
+# Event Check-In
 
-A small Windows 11 kiosk app for event attendance at a public agency: tap your
-agency badge on a USB desk reader, your name and time land on the roster, and
-the headcount exports to CSV for the audit file. Built for catered events where
-auditors need a defensible attendee count (doors propped open, outdoor events —
-the wall readers can't see you, this can).
+A small Windows 11 kiosk app for event attendance: tap your organization badge
+on a USB desk reader, your name and time land on the roster, and the headcount
+exports to CSV for the audit file. Built for catered events where auditors need
+a defensible attendee count (doors propped open, outdoor events — the wall
+readers can't see you, this can).
 
-**Status: COMPILES CLEAN, UNVERIFIED against hardware.** Built 2026-08-19 on a
-Linux node via cross-targeting: `dotnet build` and `dotnet publish` both
-succeed with 0 warnings / 0 errors, producing a self-contained
-`BadgeCheckIn.exe` (~157 MB — the whole .NET runtime rides inside; normal for
-self-contained WinForms). It has never RUN: no Windows box, no reader, no card
-has touched it. The checklist below is the postcondition list — the app is not
-real until those boxes check on Windows 11 with a CSM-2P.
+**Status: COMPILES CLEAN, UNVERIFIED against hardware.** Originally built as
+WinForms 2026-08-19, converted to WPF the same day, both on a Linux node via
+cross-targeting: `dotnet build -c Release` succeeds with 0 warnings / 0 errors.
+It has never RUN: no Windows box, no reader, no card has touched it. The
+checklist below is the postcondition list — the app is not real until those
+boxes check on Windows 11 with a real reader and card.
 
 ## Privacy contract (deliberate, load-bearing)
 
@@ -21,7 +20,7 @@ real until those boxes check on Windows 11 with a CSM-2P.
   audit 2026-08-19: the salt lives in the same DB, and short UID spaces
   (4-byte) are brute-forceable offline by anyone who obtains the file. The
   hash prevents casual disclosure, not determined recovery — so treat
-  `checkin.db` as sensitive and keep it on agency equipment.
+  `checkin.db` as sensitive and keep it on organization equipment.
 - **Exported** records: name, event, timestamp — nothing else leaves in the
   CSV. The local DB additionally keeps enrollment/creation timestamps, the
   salted hashes, and the salt.
@@ -36,9 +35,10 @@ real until those boxes check on Windows 11 with a CSM-2P.
 - **HID OMNIKEY 5022 CL** (13.56 MHz, ISO 14443, standard Windows CCID driver —
   no driver install needed on Windows 11). ACS ACR122U also works in principle
   (same Get-UID pseudo-APDU); untested.
-- Agency cards: DMP CSM-2P = MIFARE DESFire EV2. The app reads the ISO 14443
-  UID, not the DMP credential file — hence enroll-on-first-tap instead of a
-  roster import.
+- Works with any 13.56 MHz ISO 14443 badge (e.g. MIFARE DESFire EV2 access
+  cards, a common choice for physical access control). The app reads the
+  ISO 14443 UID, not any vendor credential file — hence enroll-on-first-tap
+  instead of a roster import.
 
 ## Build (on Windows, .NET 8 SDK installed)
 
@@ -51,6 +51,34 @@ dotnet publish -c Release
 Single self-contained exe; copy it anywhere (a thumb drive works). Data is
 created under `%LOCALAPPDATA%\BadgeCheckIn` on first run, never beside the exe.
 
+## Theming
+
+The binary carries no organization branding. At startup the app loads
+`theme.json` from `%LOCALAPPDATA%\BadgeCheckIn`; if the file is absent or
+invalid it runs with a neutral default ("Event Check-In", plain palette).
+
+Schema (see `themes/theme.example.json`):
+
+```json
+{
+  "appTitle": "Event Check-In",
+  "primary": "#3F3F46",
+  "accent": "#E0E0E0",
+  "background": "#FFFFFF",
+  "foreground": "#1A1A1A",
+  "logoPath": "logo.png"
+}
+```
+
+- `primary` colors the header, buttons, and status bar; header text flips
+  black/white automatically for contrast.
+- `accent` colors the big headcount number.
+- `logoPath` is optional — absolute, or relative to the directory containing
+  `theme.json`. A missing or unreadable logo (or a malformed theme file) never
+  stops the kiosk; it degrades to unbranded.
+- `themes/local/` is gitignored: organization themes and logos stay on the
+  machine and never enter the repo.
+
 ## Use
 
 1. Plug in the reader, run the exe. Status bar shows "Reader ready".
@@ -59,19 +87,20 @@ created under `%LOCALAPPDATA%\BadgeCheckIn` on first run, never beside the exe.
    forever after). Duplicate taps at the same event are refused, not doubled.
 4. **Export CSV** → `attendance_<event>_<stamp>.csv` with name, event,
    timestamp, and a TOTAL HEADCOUNT row. Attach to the purchase file.
-5. Visitors without badges: paper sign-in line, same as the memo says.
+5. Visitors without badges: paper sign-in line.
 
 ## Verification checklist (run before calling any of this real)
 
-- [x] `dotnet publish` compiles clean (verified 2026-08-19, Linux cross-target,
-      0 warnings; exe produced). Re-confirm once on Windows if built there.
-- [ ] Reader enumerates: status bar names the OMNIKEY within ~2 s of plug-in.
-- [ ] A CSM-2P card taps → UID APDU returns SW 90 00 (log a debug read).
+- [x] `dotnet build -c Release` compiles clean (verified 2026-08-19 for the
+      WPF conversion, Linux cross-target, 0 warnings / 0 errors). Re-confirm
+      `dotnet publish` once on Windows.
+- [ ] Reader enumerates: status bar names the reader within ~2 s of plug-in.
+- [ ] A badge taps → UID APDU returns SW 90 00 (log a debug read).
 - [ ] **UID stability:** the SAME card tapped 5 times across reader re-plugs
       and app restarts always resolves to the same person. (DESFire *can* be
-      configured for random UIDs; if BFT's cards are, enrollment will not
-      stick, taps prompt for a name every time, and this design needs the
-      fallback — read the DMP credential file or fall back to name-only
+      configured for random UIDs; if your organization's cards are, enrollment
+      will not stick, taps prompt for a name every time, and this design needs
+      a fallback — read the vendor credential file or fall back to name-only
       check-in. Test this FIRST; it's the one assumption that kills the app.)
 - [ ] TWO different cards resolve to two different people (no hash collision /
       truncated-UID surprise).
@@ -79,11 +108,9 @@ created under `%LOCALAPPDATA%\BadgeCheckIn` on first run, never beside the exe.
 - [ ] Duplicate tap at same event refused; same person at a NEW event records.
 - [ ] Export row count == number of distinct people who tapped; TOTAL matches.
 - [ ] Machine with no network: everything above still works (local-only claim).
+- [ ] Theme applies: with a `theme.json` in place, title/colors/logo change;
+      with it removed, the neutral default returns.
 
-## Open-sourcing note
+## License
 
-Written as a gift to a public agency; if BFT (or anyone) wants it published,
-it needs: a license choice (MIT or Apache-2.0 suggested), an agency sign-off
-that the repo carries no agency data (the .db and .csv files are gitignored),
-and a README pass to genericize the DMP/CSM-2P specifics into "13.56 MHz ISO
-14443 badges". `.gitignore` already covers `*.db` and `*.csv`.
+Apache-2.0 — see `LICENSE` and `NOTICE`. Copyright 2026 Daniel Miller.
