@@ -1,0 +1,7 @@
+# build output
+src/bin/
+src/obj/
+
+# runtime data — never commit attendance or enrollment data
+*.db
+*.csv
