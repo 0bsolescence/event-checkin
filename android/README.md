@@ -6,7 +6,7 @@ up: the phone or tablet **is** the badge reader. NFC reader mode reads the ISO
 device, matches it to an enrolled name via a salted hash, and keeps a
 timestamped roster per event with live headcount and CSV export.
 
-**Status: SCAFFOLD, UNCOMPILED.** Written 2026-08-19 on a Linux node with no
+**Status: SCAFFOLD, COMPILED 2026-08-19 (assembleDebug clean on l7440, SDK 35, Gradle 8.14; still UNVERIFIED on hardware).** Written 2026-08-19 on a Linux node with no
 Android SDK, no Gradle, and no Android device present. It has never been
 compiled, never installed, never seen a tag. Kotlin/XML were written to mirror
 the verified-compiling Windows source (`../src/`), but until `assembleDebug`
