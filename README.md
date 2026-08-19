@@ -16,12 +16,18 @@ real until those boxes check on Windows 11 with a CSM-2P.
 
 ## Privacy contract (deliberate, load-bearing)
 
-- The raw badge UID is **never stored**. Taps are matched via a salted SHA-256
-  hash (per-install random salt in the DB). The database cannot be used to
-  recover or clone a credential number.
-- Records kept: name, event, timestamp. That's the whole schema on export.
-- Local only: no network calls anywhere in the code. The SQLite file and CSV
-  exports sit next to the .exe.
+- The raw badge UID is **never stored** — taps are matched via a salted
+  SHA-256 hash (per-install random salt). Honest limit, per cross-vendor
+  audit 2026-08-19: the salt lives in the same DB, and short UID spaces
+  (4-byte) are brute-forceable offline by anyone who obtains the file. The
+  hash prevents casual disclosure, not determined recovery — so treat
+  `checkin.db` as sensitive and keep it on agency equipment.
+- **Exported** records: name, event, timestamp — nothing else leaves in the
+  CSV. The local DB additionally keeps enrollment/creation timestamps, the
+  salted hashes, and the salt.
+- Local only: no network calls anywhere in the code. Data lives in
+  `%LOCALAPPDATA%\BadgeCheckIn` (DB + exports), so the exe itself can run
+  from read-only media or Program Files.
 - Attendance is a public record once filed with the audit documentation; that's
   a feature, and the minimal schema is what makes it a safe one.
 
@@ -42,8 +48,8 @@ dotnet publish -c Release
 # Output: src\bin\Release\net8.0-windows\win-x64\publish\BadgeCheckIn.exe
 ```
 
-Single self-contained exe; copy it anywhere (a thumb drive works). It creates
-`checkin.db` beside itself on first run.
+Single self-contained exe; copy it anywhere (a thumb drive works). Data is
+created under `%LOCALAPPDATA%\BadgeCheckIn` on first run, never beside the exe.
 
 ## Use
 

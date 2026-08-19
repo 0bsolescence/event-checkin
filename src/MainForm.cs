@@ -14,11 +14,27 @@ public sealed class MainForm : Form
 
     private long? _eventId;
 
+    private bool _closing;
+
+    /// <summary>Data lives in %LOCALAPPDATA%\BadgeCheckIn — the exe itself can sit
+    /// anywhere, including read-only media or Program Files.</summary>
+    public static string DataDir
+    {
+        get
+        {
+            var d = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "BadgeCheckIn");
+            Directory.CreateDirectory(d);
+            return d;
+        }
+    }
+
     public MainForm()
     {
-        Text = "Badge Check-In";
+        Text = "BFT Event Check-In";
         Width = 640; Height = 560;
-        _db = new Db(Path.Combine(AppContext.BaseDirectory, "checkin.db"));
+        _db = new Db(Path.Combine(DataDir, "checkin.db"));
 
         _list.Columns.Add("Name", 340);
         _list.Columns.Add("Checked in", 240);
@@ -34,10 +50,11 @@ public sealed class MainForm : Form
         _export.Click += (_, _) => Export();
         _eventBox.SelectedIndexChanged += (_, _) => SelectEvent();
 
-        _reader.StatusChanged += s => BeginInvoke(() => _status.Text = s);
-        _reader.CardTapped += uid => BeginInvoke(() => OnTap(uid));
+        _reader.StatusChanged += s => SafeInvoke(() => _status.Text = s);
+        _reader.CardTapped += uid => SafeInvoke(() => OnTap(uid));
 
         Load += (_, _) => { RefreshEvents(); _reader.Start(); };
+        FormClosing += (_, _) => _closing = true;
         FormClosed += (_, _) => { _reader.Dispose(); _db.Dispose(); };
     }
 
@@ -66,6 +83,15 @@ public sealed class MainForm : Form
         UpdateCount();
     }
 
+    /// <summary>Marshals reader-thread callbacks onto the UI thread, refusing them
+    /// once shutdown has begun (handle destroyed / db disposed race).</summary>
+    private void SafeInvoke(Action action)
+    {
+        if (_closing || IsDisposed || !IsHandleCreated) return;
+        try { BeginInvoke(() => { if (!_closing && !IsDisposed) action(); }); }
+        catch (InvalidOperationException) { /* handle torn down mid-call */ }
+    }
+
     private void OnTap(byte[] uid)
     {
         if (_eventId is not long ev) { _status.Text = "Create/select an event first."; return; }
@@ -91,7 +117,7 @@ public sealed class MainForm : Form
     private void Export()
     {
         if (_eventId is not long ev || _eventBox.SelectedItem is not EventItem item) return;
-        var path = _db.ExportCsv(ev, item.Name, AppContext.BaseDirectory);
+        var path = _db.ExportCsv(ev, item.Name, DataDir);
         _status.Text = $"Exported: {path}";
         MessageBox.Show($"Attendance exported to:\n{path}", "Export complete");
     }

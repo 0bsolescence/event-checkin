@@ -29,6 +29,7 @@ public sealed class PcscReader : IDisposable
     {
         string? reader = null;
         bool cardWasPresent = false;
+        var state = default(ScardReaderState);
 
         while (!_stop)
         {
@@ -42,9 +43,14 @@ public sealed class PcscReader : IDisposable
                     continue;
                 }
                 StatusChanged?.Invoke($"Reader ready: {reader}");
+                // Atr must be pre-allocated: SCARD_READERSTATE carries an inline
+                // 36-byte ATR buffer and marshalling a null ByValArray throws.
+                state = new ScardReaderState
+                {
+                    Reader = reader, CurrentState = StateUnaware, Atr = new byte[36]
+                };
             }
 
-            var state = new ScardReaderState { Reader = reader, CurrentState = StateUnaware };
             int rc = SCardGetStatusChange(_context, 1000, ref state, 1);
             if (rc == ErrTimeout) continue;
             if (rc != 0) { reader = null; cardWasPresent = false; continue; } // reader unplugged etc.
@@ -57,7 +63,9 @@ public sealed class PcscReader : IDisposable
                 else StatusChanged?.Invoke("Card seen but UID read failed — try again.");
             }
             cardWasPresent = present;
-            Thread.Sleep(150); // debounce
+            // Per the PC/SC contract, feed the reported state back so the next
+            // call blocks until an actual change instead of returning instantly.
+            state.CurrentState = state.EventState & ~StateChanged;
         }
     }
 
@@ -107,6 +115,7 @@ public sealed class PcscReader : IDisposable
     private const uint ProtoT0 = 1, ProtoT1 = 2;
     private const uint LeaveCard = 0;
     private const uint StateUnaware = 0;
+    private const uint StateChanged = 0x2;
     private const uint StatePresent = 0x20;
     private const int ErrTimeout = unchecked((int)0x8010000A);
 

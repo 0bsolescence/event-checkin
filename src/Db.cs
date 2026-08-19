@@ -74,7 +74,9 @@ public sealed class Db : IDisposable
                  ("$e", eventId), ("$h", uidHash), ("$t", DateTime.Now.ToString("o")));
             return true;
         }
-        catch (SqliteException e) when (e.SqliteErrorCode == 19) { return false; } // UNIQUE hit
+        // 2067 = SQLITE_CONSTRAINT_UNIQUE specifically; a bare 19 would also
+        // swallow FK/NOT NULL/CHECK failures and mislabel them "already checked in".
+        catch (SqliteException e) when (e.SqliteExtendedErrorCode == 2067) { return false; }
     }
 
     public List<(string name, string tappedAt)> Attendance(long eventId)
@@ -97,13 +99,24 @@ public sealed class Db : IDisposable
     {
         var rows = Attendance(eventId);
         var safe = string.Join("_", eventName.Split(Path.GetInvalidFileNameChars()));
-        var path = Path.Combine(dir, $"attendance_{safe}_{DateTime.Now:yyyyMMdd_HHmm}.csv");
+        var stem = Path.Combine(dir, $"attendance_{safe}_{DateTime.Now:yyyyMMdd_HHmmss}");
+        var path = $"{stem}.csv";
+        // Never overwrite an earlier audit snapshot — uniquify instead.
+        for (int n = 2; File.Exists(path); n++) path = $"{stem}_{n}.csv";
         var sb = new StringBuilder("Name,Event,CheckedInAt\r\n");
         foreach (var (name, at) in rows)
-            sb.Append($"\"{name.Replace("\"", "\"\"")}\",\"{eventName.Replace("\"", "\"\"")}\",{at}\r\n");
-        sb.Append($"\"TOTAL HEADCOUNT: {rows.Count}\",,\r\n");
+            sb.Append($"{Cell(name)},{Cell(eventName)},{at}\r\n");
+        sb.Append($"{Cell($"TOTAL HEADCOUNT: {rows.Count}")},,\r\n");
         File.WriteAllText(path, sb.ToString(), Encoding.UTF8);
         return path;
+    }
+
+    /// <summary>CSV-quotes AND neutralizes spreadsheet formulas: a value starting
+    /// with = + - @ gets a leading apostrophe so Excel shows text, not a formula.</summary>
+    private static string Cell(string v)
+    {
+        if (v.Length > 0 && "=+-@".Contains(v[0])) v = "'" + v;
+        return $"\"{v.Replace("\"", "\"\"")}\"";
     }
 
     private void Exec(string sql, params (string, object)[] args)
