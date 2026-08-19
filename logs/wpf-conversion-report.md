@@ -79,3 +79,32 @@ then db — same order as before.
   com.example.eventcheckin). NOT mine, NOT committed — my commit stages
   explicit paths only. Left untouched for its owner.
 - Not pushed, no GitHub repo created — publish stays principal-gated.
+
+## Round 2 — codex P2 fixes (2026-08-19, second commit)
+
+1. **logoPath SMB/credential leak (Theme.cs)**: logoPath is now confined to
+   the directory containing theme.json. UNC (`\\` or `//` prefix) and rooted
+   paths are rejected BEFORE any filesystem probe — the probe itself
+   (`File.Exists` on `\\attacker\share\logo.png`) is what would reach out
+   over SMB and leak NetNTLM. Relative paths are resolved via
+   `Path.GetFullPath` and must start with the theme dir + separator
+   (OrdinalIgnoreCase), killing `..\` traversal. README Theming section
+   updated to state the relative-only rule and why.
+2. **Fallback gaps**: `Load` and `ResolveLogoPath` now catch `Exception`
+   (deliberate — the kiosk must never die to a bad theme); `Resolve` has
+   per-field guards (null/whitespace appTitle → "Event Check-In",
+   `ParseBrush` catches everything per color) plus a whole-body belt that
+   resets every field to hard-coded neutral on any throw. MainWindow's logo
+   image decode (`BitmapImage.EndInit`, `CacheOption=OnLoad` so decoding
+   happens there) also catches `Exception` and skips the logo.
+
+**Verification honesty**: no Windows runtime here, so the two scenario
+postconditions are closed by code-path reasoning, not execution: (a) UNC
+logoPath — `p.StartsWith(@"\\")` returns null on the first check, before
+`File.Exists`, so no SMB touch is reachable; rooted paths die on
+`Path.IsPathRooted` (Windows semantics at runtime; note `C:\...` is only
+"rooted" on Windows, which is the deployment target). (b) Corrupt image —
+`File.Exists` passes, so the path reaches MainWindow, where `EndInit()`
+throws during decode and the new catch-Exception skips the logo; the window
+continues building. Both paths end at "app runs neutral/unlogo'd". Build
+re-verified: 0 warnings, 0 errors, artifact mtime fresh.

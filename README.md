@@ -73,9 +73,12 @@ Schema (see `themes/theme.example.json`):
 - `primary` colors the header, buttons, and status bar; header text flips
   black/white automatically for contrast.
 - `accent` colors the big headcount number.
-- `logoPath` is optional — absolute, or relative to the directory containing
-  `theme.json`. A missing or unreadable logo (or a malformed theme file) never
-  stops the kiosk; it degrades to unbranded.
+- `logoPath` is optional and must be a relative path resolving to a file
+  inside the directory containing `theme.json` — nowhere else. Absolute and
+  UNC paths are rejected outright: probing an attacker-supplied network path
+  (`\\host\share\logo.png`) would make Windows reach out over SMB and can
+  leak NetNTLM credentials. A missing, corrupt, or unreadable logo (or a
+  malformed theme file) never stops the kiosk; it degrades to unbranded.
 - `themes/local/` is gitignored: organization themes and logos stay on the
   machine and never enter the repo.
 

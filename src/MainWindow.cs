@@ -67,9 +67,9 @@ public sealed class MainWindow : Window
                 bmp.Freeze();
                 titleRow.Children.Add(new Image { Source = bmp, Height = 56, Margin = new Thickness(0, 0, 16, 0) });
             }
-            catch (Exception e) when (e is NotSupportedException or IOException or UriFormatException)
+            catch (Exception)
             {
-                // Unreadable logo: run without one rather than take the kiosk down.
+                // Corrupt or unreadable logo: run without one rather than take the kiosk down.
             }
         }
         titleRow.Children.Add(new TextBlock
