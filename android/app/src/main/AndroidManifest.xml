@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Deliberately ABSENT: android.permission.INTERNET (and every other
+         permission except NFC). The app is physically incapable of a network
+         call; that absence IS the privacy claim, verifiable by anyone with
+         `aapt dump permissions` on the built APK. CSV export goes through the
+         Storage Access Framework, which needs no storage permission either. -->
+    <uses-permission android:name="android.permission.NFC" />
+
+    <!-- The phone/tablet IS the badge reader; the app is useless without NFC. -->
+    <uses-feature
+        android:name="android.hardware.nfc"
+        android:required="true" />
+
+    <!-- allowBackup=false: the DB holds the salt and the salted hashes; it
+         stays on the device instead of riding device-to-device/cloud backup. -->
+    <application
+        android:allowBackup="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.EventCheckIn">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

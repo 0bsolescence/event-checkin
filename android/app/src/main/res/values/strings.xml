@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every user-visible string lives here — an agency skin retitles the app by
+     overriding this file (resource overlay / product flavor), never by editing
+     code. Ships neutral: no agency name anywhere. -->
+<resources>
+    <string name="app_name">Event Check-In</string>
+
+    <string name="event_label">Event:</string>
+    <string name="new_event">New Event…</string>
+    <string name="export_csv">Export CSV</string>
+    <string name="headcount">Headcount: %1$d</string>
+
+    <string name="status_starting">Starting…</string>
+    <string name="status_ready">Reader ready — tap a badge on the back of the device.</string>
+    <string name="status_no_nfc">This device has no NFC — it cannot read badges.</string>
+    <string name="status_nfc_off">NFC is turned off — enable it in system settings, then return here.</string>
+    <string name="status_unreadable">Tag presented no readable ID — try again.</string>
+
+    <string name="select_event_first">Create/select an event first.</string>
+    <string name="new_event_title">New Event</string>
+    <string name="new_event_message">Event name (e.g. \"All-Hands BBQ 2026-08-21\"):</string>
+    <string name="enroll_title">Enroll</string>
+    <string name="enroll_message">New badge — enter this person\'s name:</string>
+    <string name="enrollment_cancelled">Enrollment cancelled.</string>
+
+    <string name="checked_in">Checked in: %1$s</string>
+    <string name="already_checked_in">%1$s is already checked in.</string>
+
+    <string name="exported">Attendance exported.</string>
+    <string name="export_cancelled">Export cancelled.</string>
+</resources>
