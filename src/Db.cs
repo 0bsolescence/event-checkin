@@ -45,8 +45,14 @@ public sealed class Db : IDisposable
     public string? LookupName(string uidHash) =>
         (string?)Scalar("SELECT name FROM people WHERE uid_hash=$h", ("$h", uidHash));
 
+    /// <summary>Upsert, never REPLACE: with foreign keys enforced, REPLACE deletes an
+    /// existing people row that attendance may already reference, which would throw
+    /// instead of re-enrolling. Mirrors the Android twin's non-destructive enroll.</summary>
     public void Enroll(string uidHash, string name) =>
-        Exec("INSERT OR REPLACE INTO people(uid_hash,name,enrolled_at) VALUES($h,$n,$t)",
+        Exec("""
+             INSERT INTO people(uid_hash,name,enrolled_at) VALUES($h,$n,$t)
+             ON CONFLICT(uid_hash) DO UPDATE SET name=$n
+             """,
              ("$h", uidHash), ("$n", name), ("$t", DateTime.Now.ToString("o")));
 
     public long CreateEvent(string name)

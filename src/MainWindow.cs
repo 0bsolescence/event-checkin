@@ -27,6 +27,12 @@ public sealed class MainWindow : Window
 
     private bool _closing;
 
+    // True while an enroll prompt is open: further taps are ignored so two
+    // quick unknown-badge reads cannot stack dialogs (mirrors the Android
+    // twin's tapBusy guard — the modal prompt still pumps dispatcher work,
+    // so queued reader callbacks would otherwise open a second prompt).
+    private bool _tapBusy;
+
     /// <summary>Data lives in %LOCALAPPDATA%\BadgeCheckIn — the exe itself can sit
     /// anywhere, including read-only media or Program Files.</summary>
     public static string DataDir
@@ -218,15 +224,21 @@ public sealed class MainWindow : Window
 
     private void OnTap(byte[] uid)
     {
+        if (_tapBusy) return;
         if (_eventId is not long ev) { _status.Text = "Create/select an event first."; return; }
         var hash = _db.HashUid(uid);
         var name = _db.LookupName(hash);
         if (name is null)
         {
-            name = Prompt("New badge — enter this person's name:", "Enroll");
-            if (string.IsNullOrWhiteSpace(name)) { _status.Text = "Enrollment cancelled."; return; }
-            _db.Enroll(hash, name.Trim());
-            name = name.Trim();
+            _tapBusy = true;
+            try
+            {
+                name = Prompt("New badge — enter this person's name:", "Enroll");
+                if (string.IsNullOrWhiteSpace(name)) { _status.Text = "Enrollment cancelled."; return; }
+                _db.Enroll(hash, name.Trim());
+                name = name.Trim();
+            }
+            finally { _tapBusy = false; }
         }
         if (_db.RecordTap(ev, hash))
         {
