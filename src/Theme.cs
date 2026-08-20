@@ -86,10 +86,19 @@ public sealed class Theme
     public const string DefaultLogoFileName = "logo.png";
 
     /// <summary>The bare filename an imported logo should be written as: the one
-    /// the theme references when that is a plain filename, otherwise
-    /// <see cref="DefaultLogoFileName"/>. Any directory part, rooted or UNC path,
-    /// or invalid character collapses to the default rather than being trusted —
-    /// the importer decides where files land, never the theme file.</summary>
+    /// the theme references when that is a plain filename in the theme directory
+    /// itself, otherwise <see cref="DefaultLogoFileName"/>. The importer decides
+    /// where files land, never the theme file.
+    /// <para>
+    /// A path with ANY directory part collapses to the default rather than being
+    /// stripped to its basename. Stripping looked equivalent and was not: a
+    /// theme naming "images/brand.jpg" would have had its logo copied to
+    /// DataDir\brand.jpg, which neither the named path nor the logo.png fallback
+    /// resolves — an import that reports success and shows no logo. Collapsing
+    /// to logo.png lands the file exactly where the fallback looks. Caught by
+    /// cross-vendor review 2026-08-20.
+    /// </para>
+    /// </summary>
     public string NormalizedLogoFileName()
     {
         try
@@ -98,11 +107,9 @@ public sealed class Theme
             if (string.IsNullOrEmpty(p)) return DefaultLogoFileName;
             if (p.StartsWith(@"\\") || p.StartsWith("//") || Path.IsPathRooted(p))
                 return DefaultLogoFileName;
-            var name = Path.GetFileName(p);
-            if (string.IsNullOrWhiteSpace(name) ||
-                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-                return DefaultLogoFileName;
-            return name;
+            if (p.Contains('/') || p.Contains('\\')) return DefaultLogoFileName;
+            if (p.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0) return DefaultLogoFileName;
+            return p;
         }
         catch (Exception) { return DefaultLogoFileName; }
     }

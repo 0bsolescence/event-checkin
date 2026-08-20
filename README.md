@@ -248,6 +248,10 @@ The Android twin does the same thing from its **⋮ Setup** menu.
 - [ ] Malformed input is refused, not fatal: rename a `.txt` to `.json` and
       import it; import a non-image file as a logo. Each shows a message and
       leaves the previous branding intact.
+- [ ] Awkward `logoPath`: import a theme whose `logoPath` carries a directory
+      (`"images/brand.jpg"`), then import a logo for it. **The logo must
+      appear** — it is stored as `logo.png` and picked up by the fallback. This
+      one is compile-verified only; the path logic cannot be executed on Linux.
 - [ ] **Setup… → Reset theme to neutral** → confirmation → neutral look, logo
       gone, immediately. Do this before any screenshot that leaves the agency.
 - [ ] End Event…: the confirmation names the event and its count; **No** changes
