@@ -53,11 +53,36 @@ dotnet publish -c Release
 Single self-contained exe; copy it anywhere (a thumb drive works). Data is
 created under `%LOCALAPPDATA%\BadgeCheckIn` on first run, never beside the exe.
 
+## Setup menu
+
+**Setup…** on the toolbar opens the operator menu — everything done *between*
+events, kept off the surface that gets touched *during* one:
+
+- **Import theme…** — pick a `.json`; it is validated, copied to the data
+  directory, and applied **immediately, without a restart**. The app then offers
+  to import its logo.
+- **Import logo image…** — pick a `.png`/`.jpg`; it is stored under the name the
+  current theme references, or `logo.png` when it names nothing usable.
+- **Reset theme to neutral** — behind a confirmation, deletes the theme and logo
+  files and repaints neutral immediately.
+- **Import Roster…** — as documented below.
+- **Delete Event…** — the destructive one, deliberately at the bottom.
+
+This replaces copying files into `%LOCALAPPDATA%\BadgeCheckIn` by hand, which
+was easy to get wrong and needed a restart to take effect. The same five actions
+sit behind Android's **⋮ Setup** menu; the two twins now mirror each other.
+
+Nothing malformed can take the kiosk down. A file that is not a theme, one over
+64 KB, an image over 4 MB or larger than 4000 × 4000 pixels, or an unreadable
+file is refused with a message and **nothing on disk changes** — the theme is
+validated before it is written, so what is stored is always loadable.
+
 ## Theming
 
-The binary carries no organization branding. At startup the app loads
-`theme.json` from `%LOCALAPPDATA%\BadgeCheckIn`; if the file is absent or
-invalid it runs with a neutral default ("Event Check-In", plain palette).
+The binary carries no organization branding. The app loads `theme.json` from
+`%LOCALAPPDATA%\BadgeCheckIn` at startup and again after an import; if the file
+is absent or invalid it runs with a neutral default ("Event Check-In", plain
+palette).
 
 Schema (see `themes/theme.example.json`):
 
@@ -75,7 +100,11 @@ Schema (see `themes/theme.example.json`):
 - `primary` colors the header, buttons, and status bar; header text flips
   black/white automatically for contrast.
 - `accent` colors the big headcount number.
-- `logoPath` is optional and must be a relative path resolving to a file
+- `logoPath` is optional. When it is absent, names something unusable, or does
+  not resolve, the app falls back to `logo.png` in the same directory — the same
+  rule the Android twin has always had, which is what lets one unmodified theme
+  file brand both platforms.
+- `logoPath` must otherwise be a relative path resolving to a file
   inside the directory containing `theme.json` — nowhere else. Absolute and
   UNC paths are rejected outright: probing an attacker-supplied network path
   (`\\host\share\logo.png`) would make Windows reach out over SMB and can
@@ -116,9 +145,33 @@ There are two resolution modes, and today only the second one runs:
   names plus a "Type a Name" escape hatch. Choosing a name binds it to that
   badge exactly like typing it would, and removes it from the unclaimed pool.
 
+## Ending an event
+
+**End Event…** on the toolbar closes an event out for the books. It is the
+ordinary end-of-event action, and it is not destructive:
+
+1. A confirmation names the event and its check-in count.
+2. **The attendance CSV is written first** — `attendance_<event>_<stamp>.csv` in
+   the data directory, exactly like Export CSV.
+3. Only then is the event marked ended.
+
+The export is the precondition, not a courtesy: if it fails (on Android, if the
+save dialog is cancelled), **the event is not ended and nothing changes**. There
+is no path that closes an event with no record off the machine.
+
+An ended event leaves the picker and stops accepting taps. Its rows — the event,
+its attendance, the people who attended — are all kept; only its selectability
+changes. If ending the last active event leaves none, the app asks for a new one
+exactly as it does on first launch.
+
+Ended events are archived history in v1: there is no UI to reopen one, and
+Delete Event only reaches active events, which is why ending and deleting
+compose rather than overlap. Ending is what you do to a real event when it is
+over; deleting is what you do to an event that should not exist.
+
 ## Deleting an event
 
-**Delete Event…** on the toolbar removes the selected event and every check-in
+**Setup → Delete Event…** removes the selected event and every check-in
 recorded against it, in one transaction, behind a confirmation that names the
 event and counts the records about to go. Cancelling changes nothing. Enrolled
 people and imported roster names are left alone — a person exists independently
@@ -139,14 +192,18 @@ The Android twin does the same thing from its **⋮ Setup** menu.
 ## Use
 
 1. Plug in the reader, run the exe. Status bar shows "Reader ready".
-2. **New Event…** → name it (e.g. `All-Hands BBQ 2026-08-21`).
-3. Optionally **Import Roster…** so names can be picked instead of typed.
-4. People tap as they come in. Unknown badge → pick from the roster, or type a
+2. First time only: **Setup… → Import theme…** for branding.
+3. **New Event…** → name it (e.g. `All-Hands BBQ 2026-08-21`).
+4. Optionally **Setup… → Import Roster…** so names can be picked instead of
+   typed.
+5. People tap as they come in. Unknown badge → pick from the roster, or type a
    name (enrolled forever after). Duplicate taps at the same event are refused,
    not doubled.
-5. **Export CSV** → `attendance_<event>_<stamp>.csv` with name, event,
+6. **Export CSV** any time → `attendance_<event>_<stamp>.csv` with name, event,
    timestamp, and a TOTAL HEADCOUNT row. Attach to the purchase file.
-6. Visitors without badges: paper sign-in line.
+7. When the event is over, **End Event…** — it exports and then closes the event
+   out, taking it off the picker.
+8. Visitors without badges: paper sign-in line.
 
 ## Verification checklist (run before calling any of this real)
 
@@ -182,6 +239,26 @@ The Android twin does the same thing from its **⋮ Setup** menu.
       the picker and all four buttons stay visible — they wrap onto a second
       row rather than clipping. (Cross-vendor review caught the clip; the
       wrapping fix is compiled but not yet seen rendered on Windows.)
+- [ ] **Setup… → Import theme…** with `themes/local/theme.bft.json`: the title,
+      header, headcount, buttons, list and status bar repaint **immediately, no
+      restart**. Say yes to the logo prompt, pick `bft-logo-icon.png`, and the
+      logo appears in the header. Close and reopen: branding persists. This is
+      the path that replaced the manual copy — if it does not work, say so
+      before anything else.
+- [ ] Malformed input is refused, not fatal: rename a `.txt` to `.json` and
+      import it; import a non-image file as a logo. Each shows a message and
+      leaves the previous branding intact.
+- [ ] **Setup… → Reset theme to neutral** → confirmation → neutral look, logo
+      gone, immediately. Do this before any screenshot that leaves the agency.
+- [ ] End Event…: the confirmation names the event and its count; **No** changes
+      nothing; **Yes** writes the CSV (the dialog shows the path — open it and
+      check the rows) and then the event leaves the picker. The people who
+      attended still tap through at the next event. Ending the last active event
+      prompts for a new one.
+- [ ] Upgrade path: run this build against an EXISTING `checkin.db` created by
+      the previous version. Every event still appears in the picker (the
+      `ended_at` column is added by ALTER on first open, and existing events
+      stay active), and their attendance is intact.
 - [ ] Delete Event: the confirmation names the event and its check-in count;
       **No** leaves everything in place; **Yes** removes the event and its
       attendance only — another event's list is unchanged, the people who

@@ -24,7 +24,8 @@ public sealed class Db : IDisposable
             CREATE TABLE IF NOT EXISTS people (uid_hash TEXT PRIMARY KEY, name TEXT NOT NULL,
                                                enrolled_at TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                               name TEXT NOT NULL, created_at TEXT NOT NULL);
+                                               name TEXT NOT NULL, created_at TEXT NOT NULL,
+                                               ended_at TEXT);
             CREATE TABLE IF NOT EXISTS attendance (event_id INTEGER NOT NULL REFERENCES events(id),
                                                uid_hash TEXT NOT NULL REFERENCES people(uid_hash),
                                                tapped_at TEXT NOT NULL,
@@ -32,6 +33,15 @@ public sealed class Db : IDisposable
             CREATE TABLE IF NOT EXISTS roster (name TEXT PRIMARY KEY COLLATE NOCASE,
                                                added_at TEXT NOT NULL);
             """);
+        // CREATE TABLE IF NOT EXISTS leaves an ALREADY-INSTALLED events table
+        // exactly as it was, so a database created before ended_at existed never
+        // gains the column from the block above. This is the Windows equivalent
+        // of the Android v2 → v3 migration, guarded by a PRAGMA rather than a
+        // version number because this schema has never carried one. Existing
+        // rows get NULL, which reads as active: installing an update does not
+        // end anybody's event.
+        if (!ColumnExists("events", "ended_at"))
+            Exec("ALTER TABLE events ADD COLUMN ended_at TEXT");
         // Per-install random salt, created once. Deleting the DB re-keys everything.
         if (Scalar("SELECT value FROM meta WHERE key='salt'") is null)
             Exec("INSERT INTO meta(key,value) VALUES('salt',$v)",
@@ -64,14 +74,41 @@ public sealed class Db : IDisposable
         return (long)Scalar("SELECT last_insert_rowid()")!;
     }
 
+    /// <summary>Active events only — an ended event is closed for the books and
+    /// leaves the picker. Its attendance rows stay exactly where they were;
+    /// nothing about ending an event deletes anything.</summary>
     public List<(long id, string name)> ListEvents()
     {
         var list = new List<(long, string)>();
         using var cmd = _con.CreateCommand();
-        cmd.CommandText = "SELECT id,name FROM events ORDER BY id DESC";
+        cmd.CommandText = "SELECT id,name FROM events WHERE ended_at IS NULL ORDER BY id DESC";
         using var r = cmd.ExecuteReader();
         while (r.Read()) list.Add((r.GetInt64(0), r.GetString(1)));
         return list;
+    }
+
+    /// <summary>Closes an event out. Ending is bookkeeping, not deletion: the row
+    /// and its attendance survive, the event simply stops accepting taps because
+    /// it is no longer selectable. The caller exports first — on both twins an
+    /// event is never ended without its CSV having been written, so the record
+    /// leaves the machine before the event leaves the picker.</summary>
+    public void EndEvent(long eventId) =>
+        Exec("UPDATE events SET ended_at=$t WHERE id=$e",
+             ("$t", DateTime.Now.ToString("o")), ("$e", eventId));
+
+    /// <summary>Whether a column exists, via PRAGMA table_info — the only way to
+    /// tell whether an installed database predates a schema addition.</summary>
+    private bool ColumnExists(string table, string column)
+    {
+        using var cmd = _con.CreateCommand();
+        // PRAGMA takes no parameters; the table name here is a compile-time
+        // literal from this file, never user input.
+        cmd.CommandText = $"PRAGMA table_info({table})";
+        using var r = cmd.ExecuteReader();
+        while (r.Read())
+            if (string.Equals(r.GetString(1), column, StringComparison.OrdinalIgnoreCase))
+                return true;
+        return false;
     }
 
     /// <returns>false if this person already checked in to this event.</returns>

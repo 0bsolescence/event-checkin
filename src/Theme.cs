@@ -81,11 +81,53 @@ public sealed class Theme
         }
     }
 
+    /// <summary>What an imported logo is stored as when the theme names nothing
+    /// usable. Matches the Android twin, so one theme file works on both.</summary>
+    public const string DefaultLogoFileName = "logo.png";
+
+    /// <summary>The bare filename an imported logo should be written as: the one
+    /// the theme references when that is a plain filename, otherwise
+    /// <see cref="DefaultLogoFileName"/>. Any directory part, rooted or UNC path,
+    /// or invalid character collapses to the default rather than being trusted —
+    /// the importer decides where files land, never the theme file.</summary>
+    public string NormalizedLogoFileName()
+    {
+        try
+        {
+            var p = LogoPath?.Trim();
+            if (string.IsNullOrEmpty(p)) return DefaultLogoFileName;
+            if (p.StartsWith(@"\\") || p.StartsWith("//") || Path.IsPathRooted(p))
+                return DefaultLogoFileName;
+            var name = Path.GetFileName(p);
+            if (string.IsNullOrWhiteSpace(name) ||
+                name.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+                return DefaultLogoFileName;
+            return name;
+        }
+        catch (Exception) { return DefaultLogoFileName; }
+    }
+
+    private string? ResolveLogoPath(string dir)
+    {
+        var named = ResolveNamedLogo(dir);
+        if (named is not null) return named;
+        // The fallback the Android twin has always had, now here too: an
+        // imported logo is stored as logo.png and used when logoPath is absent
+        // or does not resolve, so the SAME theme file brands both platforms
+        // without anyone editing a filename. Fixed name, no user input.
+        try
+        {
+            var fallback = Path.Combine(Path.GetFullPath(dir), DefaultLogoFileName);
+            return File.Exists(fallback) ? fallback : null;
+        }
+        catch (Exception) { return null; }
+    }
+
     /// <summary>Only a file inside the directory containing theme.json qualifies.
     /// Rooted and UNC logo paths are rejected before any filesystem probe:
     /// File.Exists on an attacker-chosen \\host\share\logo.png makes Windows
     /// reach out over SMB and can leak NetNTLM credentials.</summary>
-    private string? ResolveLogoPath(string dir)
+    private string? ResolveNamedLogo(string dir)
     {
         try
         {
