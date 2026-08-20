@@ -19,10 +19,26 @@ public sealed class PcscReader : IDisposable
 
     public void Start()
     {
-        int rc = SCardEstablishContext(ScopeSystem, IntPtr.Zero, IntPtr.Zero, out _context);
-        if (rc != 0) throw new InvalidOperationException($"SCardEstablishContext failed: 0x{rc:X8}");
         _watch = new Thread(WatchLoop) { IsBackground = true, Name = "pcsc-watch" };
         _watch.Start();
+    }
+
+    /// <summary>Establishes the PC/SC context on demand, reporting instead of
+    /// throwing. On modern Windows the Smart Card service is trigger-started
+    /// only when a reader is attached, so a kiosk launched with no reader
+    /// plugged in has no service and no context — a state to wait out, not a
+    /// crash. Plugging the reader in starts the service and the next retry
+    /// succeeds.</summary>
+    private bool EnsureContext()
+    {
+        if (_context != IntPtr.Zero) return true;
+        if (SCardEstablishContext(ScopeSystem, IntPtr.Zero, IntPtr.Zero, out _context) != 0)
+        {
+            _context = IntPtr.Zero;
+            StatusChanged?.Invoke("No reader detected — plug in the USB reader.");
+            return false;
+        }
+        return true;
     }
 
     private void WatchLoop()
@@ -33,6 +49,12 @@ public sealed class PcscReader : IDisposable
 
         while (!_stop)
         {
+            if (!EnsureContext())
+            {
+                Thread.Sleep(1500);
+                continue;
+            }
+
             if (reader is null)
             {
                 reader = FirstReaderOrNull();
@@ -53,6 +75,15 @@ public sealed class PcscReader : IDisposable
 
             int rc = SCardGetStatusChange(_context, 1000, ref state, 1);
             if (rc == ErrTimeout) continue;
+            if (rc == ErrNoService || rc == ErrServiceStopped || rc == ErrInvalidHandle)
+            {
+                // The service died (last reader unplugged): the context is dead
+                // with it. Drop it and let EnsureContext re-establish.
+                SCardReleaseContext(_context);
+                _context = IntPtr.Zero;
+                reader = null; cardWasPresent = false;
+                continue;
+            }
             if (rc != 0) { reader = null; cardWasPresent = false; continue; } // reader unplugged etc.
 
             bool present = (state.EventState & StatePresent) != 0;
@@ -118,6 +149,9 @@ public sealed class PcscReader : IDisposable
     private const uint StateChanged = 0x2;
     private const uint StatePresent = 0x20;
     private const int ErrTimeout = unchecked((int)0x8010000A);
+    private const int ErrNoService = unchecked((int)0x8010001D);
+    private const int ErrServiceStopped = unchecked((int)0x8010001E);
+    private const int ErrInvalidHandle = unchecked((int)0x80100003);
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     private struct ScardReaderState
