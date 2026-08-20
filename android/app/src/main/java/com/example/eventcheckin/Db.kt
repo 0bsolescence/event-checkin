@@ -23,7 +23,7 @@ import java.time.format.DateTimeFormatter
  * The salt is per-INSTALL: an Android install and a Windows install never
  * share enrollments — deliberate, there is no cross-device linkage.
  */
-class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
+class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSION) {
 
     val salt: String by lazy {
         readableDatabase.rawQuery("SELECT value FROM meta WHERE key='salt'", null).use { c ->
@@ -43,12 +43,17 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
             "CREATE TABLE attendance (event_id INTEGER NOT NULL REFERENCES events(id), " +
                 "uid_hash TEXT NOT NULL REFERENCES people(uid_hash), " +
                 "tapped_at TEXT NOT NULL, UNIQUE(event_id, uid_hash))")
+        db.execSQL(CREATE_ROSTER)
         // Per-install random salt, created once. Clearing the app's data re-keys everything.
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }.toHex()
         db.execSQL("INSERT INTO meta(key,value) VALUES('salt',?)", arrayOf(salt))
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    /** Additive only: an upgrade must never drop a table an event's attendance
+     *  or enrollments live in. v1 → v2 adds the imported-roster pool. */
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) db.execSQL(CREATE_ROSTER)
+    }
 
     override fun onConfigure(db: SQLiteDatabase) {
         db.setForeignKeyConstraintsEnabled(true)
@@ -108,6 +113,27 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
         if (e.message?.contains("UNIQUE constraint failed") == true) false else throw e
     }
 
+    /** Adds an imported name to the unmatched pool. Name only — the credential
+     *  number that came with it is deliberately not stored. */
+    fun addRosterName(name: String): Boolean =
+        writableDatabase.insertWithOnConflict("roster", null, ContentValues().apply {
+            put("name", name)
+            put("added_at", now())
+        }, SQLiteDatabase.CONFLICT_IGNORE) != -1L
+
+    /** Imported names nobody has tapped a badge against yet. Anyone already
+     *  enrolled is excluded even if a later import put their name back. */
+    fun rosterNames(): List<String> =
+        readableDatabase.rawQuery(
+            "SELECT name FROM roster WHERE name NOT IN (SELECT name FROM people) " +
+                "ORDER BY name COLLATE NOCASE", null)
+            .use { c -> buildList { while (c.moveToNext()) add(c.getString(0)) } }
+
+    /** Leaves the pool once bound to a badge, however the name was chosen. */
+    fun removeRosterName(name: String) {
+        writableDatabase.delete("roster", "name=? COLLATE NOCASE", arrayOf(name))
+    }
+
     fun attendance(eventId: Long): List<Pair<String, String>> =
         readableDatabase.rawQuery(
             "SELECT p.name, a.tapped_at FROM attendance a " +
@@ -129,6 +155,13 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, 1) {
     }
 
     companion object {
+        /** 2 added the roster pool; see onUpgrade before bumping again. */
+        const val VERSION = 2
+
+        private const val CREATE_ROSTER =
+            "CREATE TABLE IF NOT EXISTS roster (name TEXT PRIMARY KEY COLLATE NOCASE, " +
+                "added_at TEXT NOT NULL)"
+
         fun now(): String = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 
         /** CSV-quotes AND neutralizes spreadsheet formulas: a value starting

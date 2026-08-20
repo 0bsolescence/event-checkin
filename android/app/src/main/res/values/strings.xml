@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Every user-visible string lives here — an agency skin retitles the app by
-     overriding this file (resource overlay / product flavor), never by editing
-     code. Ships neutral: no agency name anywhere. -->
+<!-- Every user-visible string lives here. Ships neutral: no agency name
+     anywhere. The header title is overridden at runtime by appTitle in an
+     imported theme file; app_name below remains the launcher label. -->
 <resources>
     <string name="app_name">Event Check-In</string>
 
     <string name="event_label">Event:</string>
     <string name="new_event">New Event…</string>
     <string name="export_csv">Export CSV</string>
-    <string name="headcount">Headcount: %1$d</string>
+    <string name="headcount_label">HEADCOUNT</string>
+    <string name="zero">0</string>
+    <string name="logo_description">Organization logo</string>
 
     <string name="status_starting">Starting…</string>
     <string name="status_ready">Reader ready — tap a badge on the back of the device.</string>
@@ -29,4 +31,38 @@
     <string name="exported">Attendance exported.</string>
     <string name="export_cancelled">Export cancelled.</string>
     <string name="export_failed">Export FAILED — nothing was written: %1$s</string>
+
+    <!-- Setup menu -->
+    <string name="setup_glyph">⋮</string>
+    <string name="setup_title">Setup</string>
+    <string name="setup_import_theme">Import theme…</string>
+    <string name="setup_import_logo">Import logo image…</string>
+    <string name="setup_reset_theme">Reset theme to neutral</string>
+    <string name="setup_import_roster">Import roster (CSV)…</string>
+
+    <string name="theme_imported">Theme imported.</string>
+    <string name="theme_invalid">Not a valid theme file — nothing changed.</string>
+    <string name="theme_too_large">That file is too large to be a theme — nothing changed.</string>
+    <string name="theme_unreadable">Could not read that file — nothing changed.</string>
+    <string name="theme_logo_prompt">Theme imported. Import its logo image now?</string>
+    <string name="logo_imported">Logo imported.</string>
+    <string name="logo_invalid">That file is not a readable image — the logo is unchanged.</string>
+    <string name="logo_too_large">That image is too large (limit 4 MB) — the logo is unchanged.</string>
+    <string name="theme_reset">Theme reset to neutral.</string>
+    <string name="theme_reset_confirm">Remove the imported theme and logo, returning to the neutral look?</string>
+
+    <!-- Roster import -->
+    <string name="roster_title">Import roster</string>
+    <string name="roster_too_large">That file is too large to be a roster (limit 5 MB) — nothing imported.</string>
+    <string name="roster_unreadable">Could not read that file — nothing imported.</string>
+    <string name="roster_imported">Imported %1$d names: %2$d pre-enrolled, %3$d waiting for a first tap. %4$d rows skipped.</string>
+    <string name="roster_none">No usable rows in that file — nothing imported.</string>
+    <string name="roster_columns">Name column: %1$s. Credential column: %2$s.</string>
+    <string name="roster_no_credential_column">none found</string>
+
+    <!-- Unknown-badge identity picker -->
+    <string name="pick_title">Who is this badge?</string>
+    <string name="pick_search_hint">Search names</string>
+    <string name="pick_type_instead">Type a name</string>
+    <string name="pick_empty">No roster names left — type the name instead.</string>
 </resources>

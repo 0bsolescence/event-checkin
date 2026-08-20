@@ -1,8 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The ONLY brand surface in the app. Ships neutral (slate); an agency skin
-     overrides these three values plus app_name and nothing else. -->
+<!-- Neutral defaults only, matching the Windows Theme.cs fallbacks. These are
+     what the kiosk shows before a theme file is imported, and what it returns
+     to on Reset theme; the live colors come from theme/theme.json at runtime.
+     No organization branding belongs in this file. -->
 <resources>
-    <color name="brand_primary">#4A5568</color>
+    <color name="brand_primary">#3F3F46</color>
     <color name="brand_on_primary">#FFFFFF</color>
-    <color name="status_bar_background">#E8EAED</color>
+    <color name="brand_background">#FFFFFF</color>
 </resources>

@@ -39,4 +39,7 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.ktx)
     implementation(libs.material)
+    // JVM-only: the tested logic (CSV parsing, header detection, color rules)
+    // is deliberately free of Android types, so no Robolectric is needed.
+    testImplementation(libs.junit)
 }

@@ -1,9 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- DayNight parent: system light/dark handled by Material3; only the
-         brand tokens from colors.xml are pinned. -->
-    <style name="Theme.EventCheckIn" parent="Theme.Material3.DayNight">
+    <!-- NoActionBar: the app draws its own header row (logo, title, headcount)
+         exactly like the Windows twin, so a system title bar would double it.
+         Light-only rather than DayNight — the theme file owns background and
+         foreground, and a system dark mode that repainted them underneath would
+         fight the imported palette. -->
+    <style name="Theme.EventCheckIn" parent="Theme.Material3.Light.NoActionBar">
         <item name="colorPrimary">@color/brand_primary</item>
         <item name="colorOnPrimary">@color/brand_on_primary</item>
+        <item name="android:windowBackground">@color/brand_background</item>
     </style>
 </resources>

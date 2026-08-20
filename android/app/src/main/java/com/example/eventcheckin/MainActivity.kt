@@ -1,16 +1,24 @@
 package com.example.eventcheckin
 
+import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.media.ToneGenerator
+import android.net.Uri
 import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Bundle
+import android.text.Editable
 import android.text.InputType
+import android.text.TextWatcher
 import android.view.View
+import android.view.ViewGroup
 import android.widget.AdapterView
 import android.widget.ArrayAdapter
+import android.widget.BaseAdapter
 import android.widget.Button
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.ListView
 import android.widget.Spinner
 import android.widget.TextView
@@ -21,18 +29,25 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.time.LocalDateTime
 import java.time.OffsetDateTime
 import java.time.format.DateTimeFormatter
 
 /**
- * Single-activity twin of the Windows MainForm. The device's own NFC radio is
+ * Single-activity twin of the Windows MainWindow. The device's own NFC radio is
  * the badge reader: reader mode is enabled while the activity is in the
  * foreground, each tap delivers the ISO 14443 anti-collision UID via Tag.id,
  * and the flow mirrors the Windows app exactly — enroll-on-first-tap,
  * duplicate taps at the same event refused (not doubled), live headcount,
  * formula-neutralized CSV export through the Storage Access Framework (no
  * storage permission), and no network permission anywhere in the manifest.
+ *
+ * All branding — title, palette, logo — comes from the Theme loaded at startup
+ * and re-read after an import; the code carries no organization-specific
+ * strings. Theme files, logos and personnel rosters all arrive through SAF, so
+ * none of it costs a permission.
  */
 class MainActivity : AppCompatActivity() {
 
@@ -40,7 +55,18 @@ class MainActivity : AppCompatActivity() {
     private var nfc: NfcAdapter? = null
     private var beeper: ToneGenerator? = null
 
+    private var brand: Theme = Theme.neutral()
+
+    private lateinit var root: LinearLayout
+    private lateinit var header: LinearLayout
+    private lateinit var logoView: ImageView
+    private lateinit var appTitle: TextView
+    private lateinit var headcountLabel: TextView
     private lateinit var eventSpinner: Spinner
+    private lateinit var eventLabel: TextView
+    private lateinit var setupButton: Button
+    private lateinit var newEventButton: Button
+    private lateinit var exportButton: Button
     private lateinit var headcount: TextView
     private lateinit var status: TextView
     private lateinit var rows: ArrayAdapter<String>
@@ -49,8 +75,8 @@ class MainActivity : AppCompatActivity() {
     private var eventId: Long? = null
     private var eventName: String? = null
 
-    // True while an enroll dialog is open: further taps are ignored so two
-    // quick unknown-badge reads cannot stack dialogs.
+    // True while an enroll dialog or the identity picker is open: further taps
+    // are ignored so two quick unknown-badge reads cannot stack dialogs.
     private var tapBusy = false
 
     // CSV content built at click time, written when the SAF picker returns.
@@ -78,36 +104,59 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    // OpenDocument filters are wide on purpose: file providers hand JSON and CSV
+    // over as application/octet-stream often enough that a strict filter makes
+    // the very file the user came to pick unselectable.
+    private val themeLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importTheme(uri)
+        }
+    private val logoLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importLogo(uri)
+        }
+    private val rosterLauncher =
+        registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            if (uri != null) importRoster(uri)
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Android 15 (targetSdk 35) enforces edge-to-edge; older versions
         // default to fitting system windows. Opting in everywhere makes the
         // window behave identically on all supported versions, so the insets
         // padding below is applied exactly once — without this, the status bar
-        // overlays the event/new-event/export row and the controls cannot be
-        // seen or tapped (Android 15), or the padding would double (≤14).
+        // overlays the header, or the padding would double (≤14).
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { v, insets ->
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
         pendingCsv = savedInstanceState?.getString(KEY_PENDING_CSV)
 
         db = Db(this)
         beeper = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
         nfc = NfcAdapter.getDefaultAdapter(this)
 
-        eventSpinner = findViewById(R.id.event_spinner)
+        root = findViewById(R.id.root)
+        header = findViewById(R.id.header)
+        logoView = findViewById(R.id.logo)
+        appTitle = findViewById(R.id.app_title)
+        headcountLabel = findViewById(R.id.headcount_label)
         headcount = findViewById(R.id.headcount)
+        eventLabel = findViewById(R.id.event_label)
+        eventSpinner = findViewById(R.id.event_spinner)
+        setupButton = findViewById(R.id.setup)
+        newEventButton = findViewById(R.id.new_event)
+        exportButton = findViewById(R.id.export_csv)
         status = findViewById(R.id.status)
-        rows = ArrayAdapter(this, android.R.layout.simple_list_item_1)
+        rows = ThemedRows()
         findViewById<ListView>(R.id.attendance).adapter = rows
 
-        findViewById<Button>(R.id.new_event).setOnClickListener { newEvent() }
-        findViewById<Button>(R.id.export_csv).setOnClickListener { export() }
+        applyInsets()
+
+        newEventButton.setOnClickListener { newEvent() }
+        exportButton.setOnClickListener { export() }
+        setupButton.setOnClickListener { showSetupMenu() }
+        // Second way in, for anyone who reaches for the title first.
+        appTitle.setOnLongClickListener { showSetupMenu(); true }
         eventSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) =
                 selectEvent(pos)
@@ -116,9 +165,57 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        applyTheme()
         updateCount()
         refreshEvents()
         if (events.isEmpty()) newEvent()
+    }
+
+    /** The header paints under the status bar and the status line under the
+     *  navigation bar, so the primary color reaches both edges the way the
+     *  Windows header and status bar do. Base padding from the layout is kept. */
+    private fun applyInsets() {
+        val headerPad = intArrayOf(
+            header.paddingLeft, header.paddingTop, header.paddingRight, header.paddingBottom)
+        val statusPad = intArrayOf(
+            status.paddingLeft, status.paddingTop, status.paddingRight, status.paddingBottom)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(bars.left, 0, bars.right, 0)
+            header.setPadding(headerPad[0], headerPad[1] + bars.top, headerPad[2], headerPad[3])
+            status.setPadding(statusPad[0], statusPad[1], statusPad[2], statusPad[3] + bars.bottom)
+            insets
+        }
+    }
+
+    /** Re-reads the theme file and repaints every surface it owns. Cheap enough
+     *  to run on import rather than making the operator restart the kiosk. */
+    private fun applyTheme() {
+        brand = Theme.load(this)
+        title = brand.appTitle
+        root.setBackgroundColor(brand.background)
+        header.setBackgroundColor(brand.primary)
+        appTitle.text = brand.appTitle
+        appTitle.setTextColor(brand.onPrimary)
+        headcountLabel.setTextColor(brand.onPrimary)
+        headcount.setTextColor(brand.accent)
+        setupButton.setTextColor(brand.onPrimary)
+        status.setBackgroundColor(brand.primary)
+        status.setTextColor(brand.onPrimary)
+        eventLabel.setTextColor(brand.foreground)
+        newEventButton.setTextColor(brand.primary)
+        exportButton.setTextColor(brand.primary)
+        val logo = brand.logo
+        if (logo != null) {
+            logoView.setImageBitmap(logo)
+            logoView.visibility = View.VISIBLE
+        } else {
+            logoView.setImageDrawable(null)
+            logoView.visibility = View.GONE
+        }
+        rows.notifyDataSetChanged()
+        (eventSpinner.adapter as? BaseAdapter)?.notifyDataSetChanged()
     }
 
     override fun onResume() {
@@ -176,17 +273,80 @@ class MainActivity : AppCompatActivity() {
             checkIn(hash, known)
         } else {
             tapBusy = true
-            prompt(getString(R.string.enroll_title), getString(R.string.enroll_message)) { name ->
-                tapBusy = false
-                if (name.isNullOrBlank()) {
-                    status.text = getString(R.string.enrollment_cancelled)
-                } else {
-                    val trimmed = name.trim()
-                    db.enroll(hash, trimmed)
-                    checkIn(hash, trimmed)
-                }
+            promptIdentity(hash)
+        }
+    }
+
+    /** An unknown badge asks who it belongs to. With an imported roster that is
+     *  a search-and-pick from the names nobody has claimed yet; without one it
+     *  is the same free-text prompt the app has always used. */
+    private fun promptIdentity(hash: String) {
+        val pool = db.rosterNames()
+        if (pool.isEmpty()) promptTypedName(hash) else showRosterPicker(pool, hash)
+    }
+
+    private fun promptTypedName(hash: String) =
+        prompt(getString(R.string.enroll_title), getString(R.string.enroll_message)) { name ->
+            if (name.isNullOrBlank()) cancelEnroll() else bindIdentity(hash, name)
+        }
+
+    private fun showRosterPicker(pool: List<String>, hash: String) {
+        val view = layoutInflater.inflate(R.layout.dialog_roster_picker, null)
+        val search = view.findViewById<EditText>(R.id.pick_search)
+        val list = view.findViewById<ListView>(R.id.pick_list)
+        val shown = ArrayAdapter(this, android.R.layout.simple_list_item_1, ArrayList(pool))
+        list.adapter = shown
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.pick_title)
+            .setView(view)
+            .setNeutralButton(R.string.pick_type_instead, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> cancelEnroll() }
+            .setOnCancelListener { cancelEnroll() }
+            .create()
+
+        search.addTextChangedListener(object : TextWatcher {
+            override fun afterTextChanged(s: Editable?) {
+                shown.clear()
+                shown.addAll(Roster.filterNames(pool, s?.toString().orEmpty()))
+                shown.notifyDataSetChanged()
+            }
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) = Unit
+        })
+        list.setOnItemClickListener { _, _, pos, _ ->
+            val name = shown.getItem(pos) ?: return@setOnItemClickListener
+            dialog.dismiss()
+            bindIdentity(hash, name)
+        }
+        // Wired after show() so the escape hatch dismisses instead of the button
+        // closing the dialog before the typed prompt is queued.
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                dialog.dismiss()
+                promptTypedName(hash)
             }
         }
+        dialog.show()
+    }
+
+    /** Binds a name to this badge, however it was chosen, and checks them in. */
+    private fun bindIdentity(hash: String, rawName: String) {
+        tapBusy = false
+        val name = rawName.trim()
+        if (name.isEmpty()) {
+            status.text = getString(R.string.enrollment_cancelled)
+            return
+        }
+        db.enroll(hash, name)
+        // Claimed: this name is no longer waiting in the unmatched pool.
+        db.removeRosterName(name)
+        checkIn(hash, name)
+    }
+
+    private fun cancelEnroll() {
+        tapBusy = false
+        status.text = getString(R.string.enrollment_cancelled)
     }
 
     private fun checkIn(hash: String, name: String) {
@@ -202,6 +362,170 @@ class MainActivity : AppCompatActivity() {
         updateCount()
     }
 
+    private fun showSetupMenu() {
+        val items = arrayOf(
+            getString(R.string.setup_import_theme),
+            getString(R.string.setup_import_logo),
+            getString(R.string.setup_reset_theme),
+            getString(R.string.setup_import_roster))
+        AlertDialog.Builder(this)
+            .setTitle(R.string.setup_title)
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> themeLauncher.launch(arrayOf("*/*"))
+                    1 -> logoLauncher.launch(arrayOf("image/*"))
+                    2 -> confirmResetTheme()
+                    else -> rosterLauncher.launch(arrayOf("*/*"))
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmResetTheme() =
+        AlertDialog.Builder(this)
+            .setTitle(R.string.setup_reset_theme)
+            .setMessage(R.string.theme_reset_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                Theme.reset(this)
+                applyTheme()
+                status.text = getString(R.string.theme_reset)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+
+    private fun importTheme(uri: Uri) {
+        when (val r = read(uri, Theme.MAX_THEME_BYTES)) {
+            is Read.TooLarge -> status.text = getString(R.string.theme_too_large)
+            is Read.Failed -> status.text = getString(R.string.theme_unreadable)
+            is Read.Ok -> {
+                // Validate before writing: a file that is not JSON never becomes
+                // the kiosk's theme, so the theme on disk is always loadable.
+                val text = String(r.bytes, Charsets.UTF_8).removePrefix("\uFEFF")
+                val valid = try { JSONObject(text); true } catch (_: Exception) { false }
+                if (!valid) {
+                    status.text = getString(R.string.theme_invalid)
+                    return
+                }
+                try {
+                    Theme.writeThemeJson(this, text.toByteArray(Charsets.UTF_8))
+                } catch (_: Exception) {
+                    status.text = getString(R.string.theme_unreadable)
+                    return
+                }
+                applyTheme()
+                status.text = getString(R.string.theme_imported)
+                AlertDialog.Builder(this)
+                    .setTitle(R.string.setup_title)
+                    .setMessage(R.string.theme_logo_prompt)
+                    .setPositiveButton(android.R.string.ok) { _, _ ->
+                        logoLauncher.launch(arrayOf("image/*"))
+                    }
+                    .setNegativeButton(android.R.string.cancel, null)
+                    .show()
+            }
+        }
+    }
+
+    private fun importLogo(uri: Uri) {
+        when (val r = read(uri, Theme.MAX_LOGO_BYTES)) {
+            is Read.TooLarge -> status.text = getString(R.string.logo_too_large)
+            is Read.Failed -> status.text = getString(R.string.theme_unreadable)
+            is Read.Ok -> {
+                // Bounds-only decode proves it is an image before it is written,
+                // without allocating the bitmap twice.
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeByteArray(r.bytes, 0, r.bytes.size, bounds)
+                if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                    status.text = getString(R.string.logo_invalid)
+                    return
+                }
+                try {
+                    Theme.writeLogo(this, r.bytes)
+                } catch (_: Exception) {
+                    status.text = getString(R.string.logo_invalid)
+                    return
+                }
+                applyTheme()
+                status.text = getString(R.string.logo_imported)
+            }
+        }
+    }
+
+    private fun importRoster(uri: Uri) {
+        val bytes = when (val r = read(uri, MAX_ROSTER_BYTES)) {
+            is Read.TooLarge -> { status.text = getString(R.string.roster_too_large); return }
+            is Read.Failed -> { status.text = getString(R.string.roster_unreadable); return }
+            is Read.Ok -> r.bytes
+        }
+        val result = Roster.import(String(bytes, Charsets.UTF_8))
+        if (result.error != null) {
+            status.text = result.error
+            AlertDialog.Builder(this)
+                .setTitle(R.string.roster_title)
+                .setMessage(result.error)
+                .setPositiveButton(android.R.string.ok, null)
+                .show()
+            return
+        }
+        if (result.entries.isEmpty()) {
+            status.text = getString(R.string.roster_none)
+            return
+        }
+        var mapped = 0
+        var pooled = 0
+        for (entry in result.entries) {
+            // MAPPED: the credential number resolved to badge bytes, so this
+            // person is enrolled now and their first tap just checks them in.
+            val uid = entry.credential?.let { Roster.credentialToUidBytes(it) }
+            if (uid != null) {
+                db.enroll(db.hashUid(uid), entry.name)
+                db.removeRosterName(entry.name)
+                mapped++
+            } else if (db.addRosterName(entry.name)) {
+                // PICKER: name only, waiting to be claimed by a badge.
+                pooled++
+            }
+        }
+        val summary =
+            getString(R.string.roster_imported, result.entries.size, mapped, pooled, result.skipped)
+        status.text = summary
+        AlertDialog.Builder(this)
+            .setTitle(R.string.roster_title)
+            .setMessage(summary + "\n\n" + getString(
+                R.string.roster_columns,
+                result.nameHeader ?: "?",
+                result.credentialHeader ?: getString(R.string.roster_no_credential_column)))
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    /** Reads a picked document with a hard ceiling: an oversized or unreadable
+     *  file is refused with a status message, never allowed to take the kiosk
+     *  down on its way in. */
+    private fun read(uri: Uri, max: Int): Read = try {
+        val input = contentResolver.openInputStream(uri)
+        if (input == null) Read.Failed else input.use { stream ->
+            val out = ByteArrayOutputStream()
+            val buf = ByteArray(8192)
+            while (true) {
+                val n = stream.read(buf)
+                if (n < 0) break
+                out.write(buf, 0, n)
+                if (out.size() > max) return Read.TooLarge
+            }
+            Read.Ok(out.toByteArray())
+        }
+    } catch (_: Exception) {
+        Read.Failed
+    }
+
+    private sealed interface Read {
+        class Ok(val bytes: ByteArray) : Read
+        object TooLarge : Read
+        object Failed : Read
+    }
+
     private fun newEvent() =
         prompt(getString(R.string.new_event_title), getString(R.string.new_event_message)) { name ->
             if (!name.isNullOrBlank()) {
@@ -212,9 +536,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun refreshEvents() {
         events = db.listEvents()
-        eventSpinner.adapter =
-            ArrayAdapter(this, android.R.layout.simple_spinner_item, events.map { it.second })
-                .apply { setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item) }
+        eventSpinner.adapter = ThemedSpinner(events.map { it.second })
         if (events.isNotEmpty()) {
             eventSpinner.setSelection(0) // newest first, mirrors the Windows combo
         } else {
@@ -245,7 +567,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateCount() {
-        headcount.text = getString(R.string.headcount, rows.count)
+        headcount.text = rows.count.toString()
     }
 
     private fun pretty(iso: String): String = try {
@@ -268,7 +590,34 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** Attendance rows in the theme's foreground color. */
+    private inner class ThemedRows :
+        ArrayAdapter<String>(this@MainActivity, android.R.layout.simple_list_item_1) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val v = super.getView(position, convertView, parent)
+            (v as? TextView)?.setTextColor(brand.foreground)
+            return v
+        }
+    }
+
+    /** The spinner's closed state sits on the themed background, so it takes the
+     *  foreground color; the dropdown stays on the platform surface. */
+    private inner class ThemedSpinner(names: List<String>) :
+        ArrayAdapter<String>(this@MainActivity, android.R.layout.simple_spinner_item, names) {
+        init {
+            setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        }
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val v = super.getView(position, convertView, parent)
+            (v as? TextView)?.setTextColor(brand.foreground)
+            return v
+        }
+    }
+
     private companion object {
         const val KEY_PENDING_CSV = "pending_csv"
+
+        /** A personnel roster is a few thousand names; anything larger is not one. */
+        const val MAX_ROSTER_BYTES = 5 * 1024 * 1024
     }
 }
