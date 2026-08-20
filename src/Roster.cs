@@ -60,11 +60,16 @@ public static class Roster
         if (full < 0)
             full = IndexOf(c => c.Contains("full name") || c.Contains("display name")
                                 || c.Contains("employee name") || c.Contains("person name"));
-        if (full < 0)
+        // Only once no explicit full-name column exists, and only when there is
+        // no first/last pair to join: an export carrying "Username" alongside
+        // "First Name" and "Last Name" must import people, not login handles.
+        if (full < 0 && !(first >= 0 && last >= 0))
+        {
             full = IndexOf(c => c.Contains("name")
                                 && !c.Contains("first") && !c.Contains("last")
                                 && !c.Contains("middle") && !c.Contains("nick"));
-        if (full < 0 && !(first >= 0 && last >= 0)) full = IndexOf(c => c.Contains("name"));
+            if (full < 0) full = IndexOf(c => c.Contains("name"));
+        }
 
         var candidates = Enumerable.Range(0, h.Count)
             .Where(i => h[i].Contains("credential") || h[i].Contains("card")).ToList();

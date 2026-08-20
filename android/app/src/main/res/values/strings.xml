@@ -48,6 +48,7 @@
     <string name="logo_imported">Logo imported.</string>
     <string name="logo_invalid">That file is not a readable image — the logo is unchanged.</string>
     <string name="logo_too_large">That image is too large (limit 4 MB) — the logo is unchanged.</string>
+    <string name="logo_dimensions">That image is %1$d × %2$d pixels, too large to draw safely (limit 4000 × 4000) — the logo is unchanged.</string>
     <string name="theme_reset">Theme reset to neutral.</string>
     <string name="theme_reset_confirm">Remove the imported theme and logo, returning to the neutral look?</string>
 

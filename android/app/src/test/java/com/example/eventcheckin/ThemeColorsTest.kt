@@ -1,7 +1,9 @@
 package com.example.eventcheckin
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** The color rules the Windows Theme.cs applies, pinned on this side too. */
@@ -34,5 +36,17 @@ class ThemeColorsTest {
     @Test
     fun `alpha does not change which text color is chosen`() {
         assertEquals(ThemeColors.onColor(0xFF0078B8.toInt()), ThemeColors.onColor(0x000078B8))
+    }
+
+    /** Byte size does not bound a bitmap — a small file can decode to gigabytes
+     *  and take the kiosk with it. Caught by cross-vendor review 2026-08-20. */
+    @Test
+    fun `logo dimensions are bounded independently of file size`() {
+        assertTrue(Theme.isSafeLogoSize(512, 128))
+        assertTrue(Theme.isSafeLogoSize(4000, 4000))
+        assertFalse(Theme.isSafeLogoSize(4001, 10))
+        assertFalse(Theme.isSafeLogoSize(10, 4001))
+        assertFalse(Theme.isSafeLogoSize(0, 100))
+        assertFalse(Theme.isSafeLogoSize(-1, -1))
     }
 }

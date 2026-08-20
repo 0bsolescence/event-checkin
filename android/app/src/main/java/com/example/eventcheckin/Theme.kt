@@ -5,6 +5,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import org.json.JSONObject
 import java.io.File
+import kotlin.math.max
 
 /**
  * Branding loaded at startup from `theme/theme.json` inside the app's private
@@ -38,6 +39,17 @@ class Theme private constructor(
         /** A theme file is a handful of hex strings; anything larger is not one. */
         const val MAX_THEME_BYTES = 64 * 1024
         const val MAX_LOGO_BYTES = 4 * 1024 * 1024
+
+        // Byte size alone does not bound a bitmap: a well-compressed image far
+        // under MAX_LOGO_BYTES can decode to gigabytes and take the kiosk out
+        // with it. Decoded dimensions are checked before an image is stored, and
+        // again — with downsampling — every time one is loaded.
+        const val MAX_LOGO_DIMENSION = 4000
+        const val MAX_LOGO_PIXELS = 16_000_000L
+
+        /** The header logo draws at 44dp; anything past this is thrown away
+         *  detail, and decoding it in full is how the heap gets spent. */
+        private const val LOGO_TARGET_PX = 1024
 
         const val DEFAULT_TITLE = "Event Check-In"
         const val DEFAULT_PRIMARY = 0xFF3F3F46.toInt()
@@ -96,12 +108,44 @@ class Theme private constructor(
             null // any path weirdness degrades to no logo
         }
 
-        private fun loadLogo(file: File?): Bitmap? = try {
-            // Corrupt or oversized image: run without a logo rather than crash.
-            if (file != null && file.length() <= MAX_LOGO_BYTES)
-                BitmapFactory.decodeFile(file.path) else null
-        } catch (_: Exception) {
-            null
+        /** Reads an image's dimensions without allocating it. */
+        fun logoBounds(bytes: ByteArray): BitmapFactory.Options {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            try {
+                BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            } catch (_: Exception) {
+                bounds.outWidth = 0
+                bounds.outHeight = 0
+            }
+            return bounds
+        }
+
+        /** Pure, so the ceiling is testable off-device. */
+        fun isSafeLogoSize(width: Int, height: Int): Boolean =
+            width in 1..MAX_LOGO_DIMENSION && height in 1..MAX_LOGO_DIMENSION &&
+                width.toLong() * height <= MAX_LOGO_PIXELS
+
+        /** Corrupt, oversized or absurdly large image: run without a logo rather
+         *  than crash. Anything that passes is still downsampled to something a
+         *  header can use, so the heap cost is bounded whatever is on disk —
+         *  including a file that arrived by some path other than the importer. */
+        private fun loadLogo(file: File?): Bitmap? {
+            try {
+                if (file == null || file.length() > MAX_LOGO_BYTES) return null
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(file.path, bounds)
+                if (!isSafeLogoSize(bounds.outWidth, bounds.outHeight)) return null
+                var sample = 1
+                while (max(bounds.outWidth, bounds.outHeight) / sample > LOGO_TARGET_PX) sample *= 2
+                return BitmapFactory.decodeFile(
+                    file.path, BitmapFactory.Options().apply { inSampleSize = sample })
+            } catch (_: Exception) {
+                return null
+            } catch (_: OutOfMemoryError) {
+                // Caught deliberately: a kiosk that loses its logo is working, a
+                // kiosk that dies at the door is not.
+                return null
+            }
         }
 
         /** Writes an already-validated theme file. */

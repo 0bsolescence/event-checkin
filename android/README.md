@@ -75,9 +75,13 @@ runs neutral, and **Reset theme** deletes the theme directory to get back there.
   resolve; and colors accept hex only (`#RGB`, `#RRGGBB`, `#AARRGGBB`) — WPF's
   named colors have no equivalent here.
 - Nothing malformed can take the kiosk down. An oversized file (theme > 64 KB,
-  logo > 4 MB), a file that is not JSON, or one that is not a decodable image is
-  refused with a status message and **nothing on disk changes** — the theme is
-  validated before it is written, so what is stored is always loadable.
+  logo > 4 MB or over 4000 × 4000 pixels), a file that is not JSON, or one that
+  is not a decodable image is refused with a status message and **nothing on
+  disk changes** — the theme is validated before it is written, so what is
+  stored is always loadable. The pixel ceiling is separate from the byte one on
+  purpose: a well-compressed image far under 4 MB can still decode to gigabytes.
+  Whatever passes is downsampled at load time, so the heap cost stays bounded
+  even for a file that arrived by some path other than the importer.
 - `../themes/local/` is gitignored: organization themes and logos stay on the
   machine and never enter the repo.
 

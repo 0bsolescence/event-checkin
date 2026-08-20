@@ -53,10 +53,15 @@ object Roster {
         if (full < 0) full = h.indexOfFirst { c ->
             listOf("full name", "display name", "employee name", "person name").any { c.contains(it) }
         }
-        if (full < 0) full = h.indexOfFirst { c ->
-            c.contains("name") && listOf("first", "last", "middle", "nick").none { c.contains(it) }
+        // Only once no explicit full-name column exists, and only when there is
+        // no first/last pair to join: an export carrying "Username" alongside
+        // "First Name" and "Last Name" must import people, not login handles.
+        if (full < 0 && !(first >= 0 && last >= 0)) {
+            full = h.indexOfFirst { c ->
+                c.contains("name") && listOf("first", "last", "middle", "nick").none { c.contains(it) }
+            }
+            if (full < 0) full = h.indexOfFirst { it.contains("name") }
         }
-        if (full < 0 && !(first >= 0 && last >= 0)) full = h.indexOfFirst { it.contains("name") }
 
         val candidates = h.indices.filter { h[it].contains("credential") || h[it].contains("card") }
         val numbered = Regex("""number|\bno\b|#|\bid\b""")

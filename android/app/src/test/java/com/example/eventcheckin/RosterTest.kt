@@ -39,6 +39,25 @@ class RosterTest {
         assertTrue(cols.hasName)
     }
 
+    /** A first/last pair outranks any generic column that merely contains
+     *  "name": an export with a Username field must import people, not login
+     *  handles. Caught by cross-vendor review 2026-08-20. */
+    @Test
+    fun `a first and last pair beats a generic name column`() {
+        val cols = Roster.detectColumns(listOf("Username", "First Name", "Last Name", "Card Number"))
+        assertEquals(-1, cols.full)
+        assertEquals(1, cols.first)
+        assertEquals(2, cols.last)
+        assertEquals(
+            listOf("Jane Doe"),
+            Roster.import("Username,First Name,Last Name\njdoe,Jane,Doe\n").entries.map { it.name })
+    }
+
+    @Test
+    fun `a generic name column is still used when there is no pair`() {
+        assertEquals(0, Roster.detectColumns(listOf("Username", "Department")).full)
+    }
+
     @Test
     fun `a numbered credential header beats a bare one`() {
         val cols = Roster.detectColumns(listOf("Name", "Card Format", "Card Number"))

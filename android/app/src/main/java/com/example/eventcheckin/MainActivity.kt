@@ -1,6 +1,5 @@
 package com.example.eventcheckin
 
-import android.graphics.BitmapFactory
 import android.media.AudioManager
 import android.media.ToneGenerator
 import android.net.Uri
@@ -432,12 +431,17 @@ class MainActivity : AppCompatActivity() {
             is Read.TooLarge -> status.text = getString(R.string.logo_too_large)
             is Read.Failed -> status.text = getString(R.string.theme_unreadable)
             is Read.Ok -> {
-                // Bounds-only decode proves it is an image before it is written,
-                // without allocating the bitmap twice.
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeByteArray(r.bytes, 0, r.bytes.size, bounds)
+                // Bounds-only decode proves it is an image, and proves it is one
+                // the kiosk can actually draw, before a byte is written. A small
+                // file can still decode to gigabytes.
+                val bounds = Theme.logoBounds(r.bytes)
                 if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
                     status.text = getString(R.string.logo_invalid)
+                    return
+                }
+                if (!Theme.isSafeLogoSize(bounds.outWidth, bounds.outHeight)) {
+                    status.text = getString(
+                        R.string.logo_dimensions, bounds.outWidth, bounds.outHeight)
                     return
                 }
                 try {
