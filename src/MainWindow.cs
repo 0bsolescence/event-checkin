@@ -329,11 +329,18 @@ public sealed class MainWindow : Window
 
         // Parsing it as a Theme is the validation: a JSON document that is not
         // an object, or is not JSON at all, never becomes the kiosk's branding.
+        // No BOM handling here on purpose. File.ReadAllText detects and strips a
+        // UTF-8 BOM (verified against a real BOM-bearing file, 2026-08-20), so
+        // the string below never carries U+FEFF, and File.WriteAllText writes
+        // the copy without one. The Android twin DOES strip it because it
+        // decodes the bytes itself. An earlier TrimStart here was dead code that
+        // implied the opposite and misled a reviewer into filing a bug against
+        // it; the fact belongs in a comment, not in a no-op.
         Theme? parsed;
         try
         {
             parsed = System.Text.Json.JsonSerializer.Deserialize<Theme>(
-                text.TrimStart('﻿'),
+                text,
                 new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
         }
         catch (Exception)
