@@ -116,6 +116,26 @@ There are two resolution modes, and today only the second one runs:
   names plus a "Type a Name" escape hatch. Choosing a name binds it to that
   badge exactly like typing it would, and removes it from the unclaimed pool.
 
+## Deleting an event
+
+**Delete Event…** on the toolbar removes the selected event and every check-in
+recorded against it, in one transaction, behind a confirmation that names the
+event and counts the records about to go. Cancelling changes nothing. Enrolled
+people and imported roster names are left alone — a person exists independently
+of any event, and un-enrolling them would make their next tap at a different
+event ask for a name again. Afterwards the newest remaining event is selected;
+if that was the last one, the app asks for a new event exactly as it does on
+first launch.
+
+The tension is deliberate and worth naming: **attendance is append-only from the
+UI**, a privacy and audit posture, so there is no "remove one check-in" anywhere
+in either app — a single record cannot be quietly edited away. Deleting an event
+is event-level housekeeping for a test event or one created by mistake, and it
+takes the whole record with it, visibly. Export the CSV first if the record
+matters; nothing is recoverable afterwards.
+
+The Android twin does the same thing from its **⋮ Setup** menu.
+
 ## Use
 
 1. Plug in the reader, run the exe. Status bar shows "Reader ready".
@@ -158,6 +178,13 @@ There are two resolution modes, and today only the second one runs:
       the same name is not offered for a second badge.
 - [ ] "Type a Name" still works with a roster loaded, and is the only path when
       no roster has been imported.
+- [ ] Delete Event: the confirmation names the event and its check-in count;
+      **No** leaves everything in place; **Yes** removes the event and its
+      attendance only — another event's list is unchanged, the people who
+      attended stay enrolled (their next tap does not ask for a name), and the
+      newest remaining event is selected. Deleting the last event prompts for a
+      new one, and cancelling that prompt leaves an empty combo that refuses
+      taps with "Create/select an event first." rather than crashing.
 
 ## License
 

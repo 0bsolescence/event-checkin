@@ -120,6 +120,7 @@ public sealed class MainWindow : Window
             VerticalContentAlignment = VerticalAlignment.Center
         };
         var newEvent = MakeButton("New Event…");
+        var deleteEvent = MakeButton("Delete Event…");
         var export = MakeButton("Export CSV");
         var importRoster = MakeButton("Import Roster…");
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 16, 24, 8) };
@@ -130,6 +131,7 @@ public sealed class MainWindow : Window
         });
         toolbar.Children.Add(_eventBox);
         toolbar.Children.Add(newEvent);
+        toolbar.Children.Add(deleteEvent);
         toolbar.Children.Add(export);
         toolbar.Children.Add(importRoster);
 
@@ -176,6 +178,7 @@ public sealed class MainWindow : Window
         Content = root;
 
         newEvent.Click += (_, _) => NewEvent();
+        deleteEvent.Click += (_, _) => DeleteEvent();
         export.Click += (_, _) => Export();
         importRoster.Click += (_, _) => ImportRoster();
         _eventBox.SelectionChanged += (_, _) => SelectEvent();
@@ -200,7 +203,16 @@ public sealed class MainWindow : Window
     {
         _eventBox.Items.Clear();
         foreach (var (id, name) in _db.ListEvents()) _eventBox.Items.Add(new EventItem(id, name));
-        if (_eventBox.Items.Count > 0) _eventBox.SelectedIndex = 0; else NewEvent();
+        if (_eventBox.Items.Count > 0) { _eventBox.SelectedIndex = 0; return; }
+        // Nothing left to check anyone in to. Clearing the combo does not clear
+        // the selection this class holds, so drop it BEFORE prompting: a tap
+        // while the prompt is up must not record attendance against an event
+        // that no longer exists (an FK failure, not a duplicate — it would
+        // escape RecordTap's 2067-only catch and take the kiosk down).
+        _eventId = null;
+        _list.Items.Clear();
+        UpdateCount();
+        NewEvent();
     }
 
     private void NewEvent()
@@ -209,6 +221,48 @@ public sealed class MainWindow : Window
         if (string.IsNullOrWhiteSpace(name)) return;
         _db.CreateEvent(name.Trim());
         RefreshEvents();
+    }
+
+    /// <summary>Deletes the selected event and everything checked in to it, behind
+    /// a confirmation that names the event and the number of records going with
+    /// it. Cancelling — including closing the box — changes nothing. Sits on the
+    /// toolbar next to New Event; the Android twin puts it in its ⋮ Setup menu,
+    /// which this window does not have.</summary>
+    private void DeleteEvent()
+    {
+        if (_eventId is not long ev || _eventBox.SelectedItem is not EventItem item)
+        {
+            _status.Text = "No event selected — nothing to delete.";
+            return;
+        }
+        var count = _db.AttendanceCount(ev);
+        var message = count == 0
+            ? $"Delete \"{item.Name}\"?\n\nNobody has checked in to it, so no attendance " +
+              "records are lost. Enrolled people are not affected."
+            : $"Delete \"{item.Name}\" and its {(count == 1 ? "1 check-in" : $"{count} check-ins")}?\n\n" +
+              "The attendance records for this event are removed permanently and cannot be " +
+              "recovered — export the CSV first if you need the record.\n\n" +
+              "Enrolled people are not affected.";
+        // No is the default button: a stray Enter or Escape cancels. The tap
+        // guard is held across the box for the same reason the enroll prompt
+        // holds it — the modal still pumps dispatcher work, so a badge tapped
+        // mid-confirmation would otherwise stack an enroll prompt on top of a
+        // destructive question.
+        MessageBoxResult answer;
+        _tapBusy = true;
+        try
+        {
+            answer = MessageBox.Show(this, message, "Delete event",
+                                     MessageBoxButton.YesNo, MessageBoxImage.Warning,
+                                     MessageBoxResult.No);
+        }
+        finally { _tapBusy = false; }
+        if (answer != MessageBoxResult.Yes) return;
+        _db.DeleteEvent(ev);
+        // Re-selects the newest remaining event, or asks for a new one when this
+        // was the last.
+        RefreshEvents();
+        _status.Text = $"Deleted event: {item.Name}";
     }
 
     private void SelectEvent()

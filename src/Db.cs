@@ -117,6 +117,46 @@ public sealed class Db : IDisposable
     public void RemoveRosterName(string name) =>
         Exec("DELETE FROM roster WHERE name=$n COLLATE NOCASE", ("$n", name));
 
+    /// <summary>How many people are checked in to this event — the number the
+    /// delete confirmation has to state out loud before anything is removed.</summary>
+    public int AttendanceCount(long eventId) =>
+        Convert.ToInt32(Scalar("SELECT COUNT(*) FROM attendance WHERE event_id=$e",
+                               ("$e", eventId)));
+
+    /// <summary>
+    /// Removes one event and the attendance rows belonging to it, in a single
+    /// transaction: an event never survives as a name with orphaned check-ins,
+    /// and check-ins never survive the event they belong to. People and their
+    /// enrollments are deliberately untouched — a person exists independently of
+    /// any event, and un-enrolling them here would make their next tap at a
+    /// different event ask for a name again. Imported roster names are untouched
+    /// for the same reason.
+    /// <para>
+    /// The design tension, stated honestly rather than papered over: attendance
+    /// is append-only from the UI as a privacy and audit posture, so there is
+    /// deliberately no "remove one check-in" — a single record cannot be quietly
+    /// edited away. Deleting an event is event-level housekeeping (a test event,
+    /// one created by mistake) that takes the whole record with it, visibly and
+    /// behind a confirmation, rather than reintroducing row-level editing by the
+    /// back door. Nothing here is recoverable afterwards; export first.
+    /// </para>
+    /// <para>
+    /// Statement order is load-bearing: with foreign keys enforced, deleting the
+    /// event row while attendance still references it fails the constraint.
+    /// Mirrors the Android twin's deleteEvent.
+    /// </para>
+    /// </summary>
+    public void DeleteEvent(long eventId)
+    {
+        // Commands from CreateCommand() inherit the connection's active
+        // transaction, so both deletes land inside this one; disposing without
+        // Commit rolls back, leaving the event and its attendance intact.
+        using var tx = _con.BeginTransaction();
+        Exec("DELETE FROM attendance WHERE event_id=$e", ("$e", eventId));
+        Exec("DELETE FROM events WHERE id=$e", ("$e", eventId));
+        tx.Commit();
+    }
+
     public List<(string name, string tappedAt)> Attendance(long eventId)
     {
         var list = new List<(string, string)>();
