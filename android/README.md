@@ -19,8 +19,9 @@ on the tablet yet.
   forever after. Cancel/blank → "Enrollment cancelled.", nothing stored.
 - **Duplicate taps at the same event are refused**, not doubled — enforced by
   `UNIQUE(event_id, uid_hash)` in SQLite, same schema as the Windows DB.
-- **Events** are created and selected in-app; the same person taps fresh at
-  each new event.
+- **Events** are created, selected and deleted in-app; the same person taps
+  fresh at each new event. Deleting one takes its check-ins with it and leaves
+  enrollments alone (see below) — the only deletion either app offers.
 - **CSV export**: `Name,Event,CheckedInAt` + a `TOTAL HEADCOUNT: n` row, CRLF,
   quoted cells, formula-neutralized (a leading `=` `+` `-` `@` gets an
   apostrophe so Excel renders text, not a formula). Same schema and escaping
@@ -36,9 +37,16 @@ on the tablet yet.
 
 The **⋮** button at the right of the header opens Setup; long-pressing the
 header title opens the same menu, for anyone who reaches for that first. It
-holds four actions: Import theme, Import logo image, Reset theme to neutral, and
-Import roster (CSV). Everything arrives through the Storage Access Framework, so
-none of it costs a permission and no file manager needs one either.
+holds five actions: Import theme, Import logo image, Reset theme to neutral,
+Import roster (CSV), and Delete event. The imports all arrive through the
+Storage Access Framework, so none of them costs a permission and no file manager
+needs one either.
+
+**Delete event** sits here rather than on the toolbar on purpose: the toolbar is
+what door staff touch during an event, and a destructive action does not belong
+one mis-tap from Export. The Windows twin puts it on the toolbar next to New
+Event because that window has no Setup menu to hold it — same semantics, each
+platform's own shape.
 
 The document pickers filter widely (`*/*` for JSON and CSV) on purpose: file
 providers hand those types over as `application/octet-stream` often enough that
@@ -98,6 +106,25 @@ On this side the picker is a searchable single-choice dialog with a "Type a
 name" escape hatch, shown in place of the free-text prompt whenever unclaimed
 roster names exist. The credential number is never written to the database.
 
+### Deleting an event
+
+Setup → **Delete event** removes the selected event and every check-in recorded
+against it, in one transaction, behind a confirmation naming the event and
+counting the records about to go. Cancelling — the button, back, or a tap
+outside — changes nothing. Enrolled people and imported roster names are left
+alone: a person exists independently of any event, and un-enrolling them would
+make their next tap at a different event ask for a name again. Afterwards the
+newest remaining event is selected; if that was the last one, the app asks for a
+new event exactly as it does on first launch.
+
+The tension is deliberate: **attendance is append-only from the UI**, a privacy
+and audit posture, so neither twin offers "remove one check-in" — a single
+record cannot be quietly edited away. Deleting an event is event-level
+housekeeping for a test event or one created by mistake, and it takes the whole
+record with it, visibly. Export first if the record matters. No schema change
+was needed for any of this: it is DML against the v2 schema, so the database
+version stays at 2 and no migration runs.
+
 ## Privacy contract (deliberate, load-bearing)
 
 - The raw badge UID is **never stored** — only a salted SHA-256 hash
@@ -145,6 +172,14 @@ gradle wrapper --gradle-version 8.11.1
 header detection, the color rules, and the assertion that credential mapping
 stays disabled. No Robolectric and no device needed, because the tested code
 holds no Android types.
+
+`DbDeleteEventTest` is the one exception to "pure logic only", and it is worth
+the single test-only dependency (`org.xerial:sqlite-jdbc`, never packaged): it
+runs `Db`'s own schema and DELETE constants against a real SQLite engine, so
+deletion semantics — scoping, statement order under foreign keys, people and
+roster surviving, rollback on a mid-way failure — are pinned by execution rather
+than by reading the code. It does not exercise Android's `SQLiteDatabase`
+wrapper; that part stays on the manual checklist below.
 
 If a pinned version in `gradle/libs.versions.toml` fails to resolve, bump to
 the nearest available — nothing depends on those exact numbers.
@@ -197,6 +232,14 @@ submission.
 - [ ] After import, an unknown badge shows the name picker; typing narrows it;
       picking a name checks that person in; that name is not offered again for
       a second badge. "Type a name" still reaches the free-text prompt.
+- [ ] Setup → Delete event: the confirmation names the event and its check-in
+      count; cancelling (button, back, tap outside) changes nothing; confirming
+      removes that event and its attendance only. Another event's list is
+      unchanged, everyone who attended stays enrolled (their next tap does not
+      ask for a name), and the newest remaining event is selected. Deleting the
+      last event prompts for a new one; cancelling that prompt leaves an empty
+      spinner that refuses taps with "Create/select an event first." rather
+      than crashing.
 - [ ] Upgrading over the previously installed build (not a fresh install) keeps
       existing events, people and attendance — the v1 → v2 migration adds the
       roster table without touching them.

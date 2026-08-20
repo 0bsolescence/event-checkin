@@ -39,6 +39,7 @@
     <string name="setup_import_logo">Import logo image…</string>
     <string name="setup_reset_theme">Reset theme to neutral</string>
     <string name="setup_import_roster">Import roster (CSV)…</string>
+    <string name="setup_delete_event">Delete event…</string>
 
     <string name="theme_imported">Theme imported.</string>
     <string name="theme_invalid">Not a valid theme file — nothing changed.</string>
@@ -60,6 +61,19 @@
     <string name="roster_none">No usable rows in that file — nothing imported.</string>
     <string name="roster_columns">Name column: %1$s. Credential column: %2$s.</string>
     <string name="roster_no_credential_column">none found</string>
+
+    <!-- Event deletion. The confirmation states the event, the number of
+         check-ins about to go, and that they do not come back. -->
+    <string name="delete_event_title">Delete event</string>
+    <string name="delete_event_button">Delete event</string>
+    <string name="delete_event_none">No event selected — nothing to delete.</string>
+    <string name="delete_event_confirm">Delete \"%1$s\" and its %2$s?\n\nThe attendance records for this event are removed permanently and cannot be recovered — export the CSV first if you need the record.\n\nEnrolled people are not affected.</string>
+    <string name="delete_event_confirm_empty">Delete \"%1$s\"?\n\nNobody has checked in to it, so no attendance records are lost. Enrolled people are not affected.</string>
+    <string name="event_deleted">Deleted event: %1$s</string>
+    <plurals name="check_ins">
+        <item quantity="one">%d check-in</item>
+        <item quantity="other">%d check-ins</item>
+    </plurals>
 
     <!-- Unknown-badge identity picker -->
     <string name="pick_title">Who is this badge?</string>

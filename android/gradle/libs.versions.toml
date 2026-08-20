@@ -9,9 +9,15 @@ appcompat = "1.7.0"
 material = "1.12.0"
 activity = "1.9.3"
 junit = "4.13.2"
+# Resolved against Maven Central 2026-08-20, unlike the versions above.
+sqlitejdbc = "3.50.3.0"
 
 [libraries]
 junit = { group = "junit", name = "junit", version.ref = "junit" }
+# Test-only: lets the JVM tests run the app's own SQL against a real SQLite
+# engine. Never packaged — the app itself still has no storage dependency
+# beyond Android's own SQLiteOpenHelper.
+sqlite-jdbc = { group = "org.xerial", name = "sqlite-jdbc", version.ref = "sqlitejdbc" }
 androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
 androidx-activity-ktx = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }
 material = { group = "com.google.android.material", name = "material", version.ref = "material" }

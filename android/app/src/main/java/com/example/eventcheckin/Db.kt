@@ -32,17 +32,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
     }
 
     override fun onCreate(db: SQLiteDatabase) {
-        db.execSQL("CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
-        db.execSQL(
-            "CREATE TABLE people (uid_hash TEXT PRIMARY KEY, name TEXT NOT NULL, " +
-                "enrolled_at TEXT NOT NULL)")
-        db.execSQL(
-            "CREATE TABLE events (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "name TEXT NOT NULL, created_at TEXT NOT NULL)")
-        db.execSQL(
-            "CREATE TABLE attendance (event_id INTEGER NOT NULL REFERENCES events(id), " +
-                "uid_hash TEXT NOT NULL REFERENCES people(uid_hash), " +
-                "tapped_at TEXT NOT NULL, UNIQUE(event_id, uid_hash))")
+        db.execSQL(CREATE_META)
+        db.execSQL(CREATE_PEOPLE)
+        db.execSQL(CREATE_EVENTS)
+        db.execSQL(CREATE_ATTENDANCE)
         db.execSQL(CREATE_ROSTER)
         // Per-install random salt, created once. Clearing the app's data re-keys everything.
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }.toHex()
@@ -134,6 +127,47 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
         writableDatabase.delete("roster", "name=? COLLATE NOCASE", arrayOf(name))
     }
 
+    /** How many people are checked in to this event — the number the delete
+     *  confirmation has to state out loud before anything is removed. */
+    fun attendanceCount(eventId: Long): Int =
+        readableDatabase.rawQuery(COUNT_ATTENDANCE, arrayOf(eventId.toString())).use { c ->
+            if (c.moveToFirst()) c.getInt(0) else 0
+        }
+
+    /**
+     * Removes one event and the attendance rows belonging to it, in a single
+     * transaction: an event never survives as a name with orphaned check-ins,
+     * and check-ins never survive the event they belong to. People and their
+     * enrollments are deliberately untouched — a person exists independently of
+     * any event, and un-enrolling them here would make their next tap at a
+     * different event ask for a name again. Imported roster names are untouched
+     * for the same reason.
+     *
+     * The design tension, stated honestly rather than papered over: attendance
+     * is append-only from the UI as a privacy and audit posture, so there is
+     * deliberately no "remove one check-in" — a single record cannot be quietly
+     * edited away. Deleting an event is event-level housekeeping (a test event,
+     * one created by mistake) that takes the whole record with it, visibly and
+     * behind a confirmation, rather than reintroducing row-level editing by the
+     * back door. Nothing here is recoverable afterwards; export first.
+     *
+     * Statement order is load-bearing: with foreign keys enforced, deleting the
+     * event row while attendance still references it fails the constraint.
+     */
+    fun deleteEvent(eventId: Long) {
+        val db = writableDatabase
+        db.beginTransaction()
+        try {
+            db.execSQL(DELETE_ATTENDANCE_FOR_EVENT, arrayOf(eventId))
+            db.execSQL(DELETE_EVENT, arrayOf(eventId))
+            db.setTransactionSuccessful()
+        } finally {
+            // Without the successful mark this rolls back, so a throw between
+            // the two deletes leaves the event and its attendance intact.
+            db.endTransaction()
+        }
+    }
+
     fun attendance(eventId: Long): List<Pair<String, String>> =
         readableDatabase.rawQuery(
             "SELECT p.name, a.tapped_at FROM attendance a " +
@@ -155,12 +189,33 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
     }
 
     companion object {
-        /** 2 added the roster pool; see onUpgrade before bumping again. */
+        /** 2 added the roster pool; see onUpgrade before bumping again.
+         *  Event deletion needed no bump — it is DML against this same schema. */
         const val VERSION = 2
 
-        private const val CREATE_ROSTER =
+        // The schema and the deletion statements are constants rather than
+        // inline strings so the JVM unit tests can build the real tables and run
+        // the real DELETEs against a SQLite engine off-device. A deletion test
+        // that invented its own schema would prove nothing about this one.
+        const val CREATE_META =
+            "CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+        const val CREATE_PEOPLE =
+            "CREATE TABLE IF NOT EXISTS people (uid_hash TEXT PRIMARY KEY, name TEXT NOT NULL, " +
+                "enrolled_at TEXT NOT NULL)"
+        const val CREATE_EVENTS =
+            "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                "name TEXT NOT NULL, created_at TEXT NOT NULL)"
+        const val CREATE_ATTENDANCE =
+            "CREATE TABLE IF NOT EXISTS attendance (event_id INTEGER NOT NULL REFERENCES events(id), " +
+                "uid_hash TEXT NOT NULL REFERENCES people(uid_hash), " +
+                "tapped_at TEXT NOT NULL, UNIQUE(event_id, uid_hash))"
+        const val CREATE_ROSTER =
             "CREATE TABLE IF NOT EXISTS roster (name TEXT PRIMARY KEY COLLATE NOCASE, " +
                 "added_at TEXT NOT NULL)"
+
+        const val COUNT_ATTENDANCE = "SELECT COUNT(*) FROM attendance WHERE event_id=?"
+        const val DELETE_ATTENDANCE_FOR_EVENT = "DELETE FROM attendance WHERE event_id=?"
+        const val DELETE_EVENT = "DELETE FROM events WHERE id=?"
 
         fun now(): String = OffsetDateTime.now().format(DateTimeFormatter.ISO_OFFSET_DATE_TIME)
 

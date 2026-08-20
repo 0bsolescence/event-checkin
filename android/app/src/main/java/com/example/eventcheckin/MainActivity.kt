@@ -166,8 +166,9 @@ class MainActivity : AppCompatActivity() {
 
         applyTheme()
         updateCount()
+        // Asks for a first event itself when there are none, the way the Windows
+        // RefreshEvents does — including after the last event is deleted.
         refreshEvents()
-        if (events.isEmpty()) newEvent()
     }
 
     /** The header paints under the status bar and the status line under the
@@ -366,7 +367,8 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.setup_import_theme),
             getString(R.string.setup_import_logo),
             getString(R.string.setup_reset_theme),
-            getString(R.string.setup_import_roster))
+            getString(R.string.setup_import_roster),
+            getString(R.string.setup_delete_event))
         AlertDialog.Builder(this)
             .setTitle(R.string.setup_title)
             .setItems(items) { _, which ->
@@ -374,10 +376,50 @@ class MainActivity : AppCompatActivity() {
                     0 -> themeLauncher.launch(arrayOf("*/*"))
                     1 -> logoLauncher.launch(arrayOf("image/*"))
                     2 -> confirmResetTheme()
-                    else -> rosterLauncher.launch(arrayOf("*/*"))
+                    3 -> rosterLauncher.launch(arrayOf("*/*"))
+                    else -> confirmDeleteEvent()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Deleting an event lives in the Setup menu, behind the same ⋮ as the other
+     *  operator-only actions, rather than on the toolbar: the toolbar is what
+     *  door staff touch during an event, and a destructive action does not
+     *  belong one mis-tap from Export. The Windows twin puts it on the toolbar
+     *  next to New Event because that window has no Setup menu to hold it. */
+    private fun confirmDeleteEvent() {
+        val id = eventId
+        val name = eventName
+        if (id == null || name == null) {
+            status.text = getString(R.string.delete_event_none)
+            return
+        }
+        val count = db.attendanceCount(id)
+        val message =
+            if (count == 0) getString(R.string.delete_event_confirm_empty, name)
+            else getString(
+                R.string.delete_event_confirm, name,
+                resources.getQuantityString(R.plurals.check_ins, count, count))
+        // Taps are ignored while a destructive question is on screen, the same
+        // guard the enroll prompt holds — a badge presented mid-confirmation
+        // must not stack an enroll dialog on top of it.
+        tapBusy = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.delete_event_title)
+            .setMessage(message)
+            // Cancel is the only other way out: the button, back, or a tap
+            // outside all leave the event exactly as it was.
+            .setPositiveButton(R.string.delete_event_button) { _, _ ->
+                db.deleteEvent(id)
+                // Re-selects the newest remaining event, or asks for a new one
+                // when this was the last.
+                refreshEvents()
+                status.text = getString(R.string.event_deleted, name)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { tapBusy = false }
             .show()
     }
 
@@ -544,9 +586,13 @@ class MainActivity : AppCompatActivity() {
         if (events.isNotEmpty()) {
             eventSpinner.setSelection(0) // newest first, mirrors the Windows combo
         } else {
+            // Nothing left to check anyone in to — first-launch state. The stale
+            // selection is dropped BEFORE the prompt opens: a tap while it is up
+            // must not record attendance against an event that no longer exists.
             eventId = null; eventName = null
             rows.clear()
             updateCount()
+            newEvent()
         }
     }
 

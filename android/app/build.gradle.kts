@@ -42,4 +42,8 @@ dependencies {
     // JVM-only: the tested logic (CSV parsing, header detection, color rules)
     // is deliberately free of Android types, so no Robolectric is needed.
     testImplementation(libs.junit)
+    // Runs Db's own schema and DELETE statements against a real SQLite engine
+    // off-device, so deletion semantics are pinned by execution rather than by
+    // reading the code. Test classpath only; nothing ships in the APK.
+    testImplementation(libs.sqlite.jdbc)
 }
