@@ -89,9 +89,19 @@ attendance intact.
 | `2c469f8` | Windows: delete an event and its attendance, behind a confirmation |
 | `055dc04` | Android: the event-deletion twin, in the ⋮ Setup menu |
 | `eaa1133` | Fold codex P2: wrap the toolbar so the fifth control cannot clip |
+| `e32ec9c` | This report |
+| `fd20dfa` | Add `DbDeleteEventTest`, missed by the pathspec commit that referenced it |
 
 Pushed to `0bsolescence/event-checkin` `main`; local HEAD and `origin/main` both
-at `eaa1133`.
+at `fd20dfa`.
+
+**A miss worth recording.** `git commit -- android/` committed the
+`build.gradle.kts` and version-catalog entries wiring up the new test but *not*
+the test file, because a pathspec commit does not pick up an untracked file.
+For three commits the pushed tree carried a test dependency and a claim with no
+test behind it, while the local build kept passing. Caught by reading
+`git status` after the push rather than trusting the commit, and fixed in
+`fd20dfa` — then confirmed the hard way, below.
 
 ## Builds and verification
 
@@ -104,6 +114,11 @@ at `eaa1133`.
 | sqlite-jdbc in the APK | **absent** — 0 matching entries in the zip; test classpath only |
 | `dotnet build -c Release` | 0 warnings, 0 errors |
 | C# storage-layer harness (executed) | **17/17 checks pass** |
+
+Every row above was then re-run against a **fresh clone of pushed `fd20dfa`**,
+not the working tree — the postcondition for "it is actually in the repo" after
+the missing-file miss. Same results, and the same APK sha256 byte for byte from
+a clean checkout.
 
 ### How the deletion is actually tested
 
