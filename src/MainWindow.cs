@@ -117,17 +117,23 @@ public sealed class MainWindow : Window
         _eventBox = new ComboBox
         {
             MinWidth = 360, FontSize = 18, Padding = new Thickness(10, 8, 10, 8),
-            VerticalContentAlignment = VerticalAlignment.Center
+            VerticalContentAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 0, 8)
         };
         var newEvent = MakeButton("New Event…");
         var deleteEvent = MakeButton("Delete Event…");
         var export = MakeButton("Export CSV");
         var importRoster = MakeButton("Import Roster…");
-        var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 16, 24, 8) };
+        // WrapPanel, not StackPanel: the picker plus four touch-sized buttons
+        // overflow the 960px default width and badly overflow the 640px minimum,
+        // and a StackPanel neither wraps nor scrolls — the rightmost button
+        // would simply be unreachable. Wrapping keeps every action on screen at
+        // any supported size. Flagged by cross-vendor review 2026-08-20.
+        var toolbar = new WrapPanel { Margin = new Thickness(24, 16, 24, 8) };
         toolbar.Children.Add(new TextBlock
         {
             Text = "Event:", FontSize = 18, Foreground = _theme.ForegroundBrush,
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0)
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 8)
         });
         toolbar.Children.Add(_eventBox);
         toolbar.Children.Add(newEvent);
@@ -194,7 +200,9 @@ public sealed class MainWindow : Window
     private Button MakeButton(string text) => new()
     {
         Content = text, FontSize = 18,
-        Padding = new Thickness(20, 8, 20, 8), Margin = new Thickness(12, 0, 0, 0),
+        // The bottom margin is the gap between wrapped toolbar rows; harmless
+        // on the roster picker's single row of buttons.
+        Padding = new Thickness(20, 8, 20, 8), Margin = new Thickness(12, 0, 0, 8),
         Background = _theme.PrimaryBrush, Foreground = _theme.OnPrimaryBrush,
         BorderThickness = new Thickness(0)
     };

@@ -178,6 +178,10 @@ The Android twin does the same thing from its **⋮ Setup** menu.
       the same name is not offered for a second badge.
 - [ ] "Type a Name" still works with a roster loaded, and is the only path when
       no roster has been imported.
+- [ ] Toolbar fits: at the 960px default and dragged down to the 640px minimum,
+      the picker and all four buttons stay visible — they wrap onto a second
+      row rather than clipping. (Cross-vendor review caught the clip; the
+      wrapping fix is compiled but not yet seen rendered on Windows.)
 - [ ] Delete Event: the confirmation names the event and its check-in count;
       **No** leaves everything in place; **Yes** removes the event and its
       attendance only — another event's list is unchanged, the people who
