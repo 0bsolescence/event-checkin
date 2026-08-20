@@ -19,9 +19,11 @@ on the tablet yet.
   forever after. Cancel/blank → "Enrollment cancelled.", nothing stored.
 - **Duplicate taps at the same event are refused**, not doubled — enforced by
   `UNIQUE(event_id, uid_hash)` in SQLite, same schema as the Windows DB.
-- **Events** are created, selected and deleted in-app; the same person taps
-  fresh at each new event. Deleting one takes its check-ins with it and leaves
-  enrollments alone (see below) — the only deletion either app offers.
+- **Events** are created, selected, ended and deleted in-app; the same person
+  taps fresh at each new event. **Ending** exports the CSV and closes the event
+  for the books, keeping every row; **deleting** takes its check-ins with it.
+  Both leave enrollments alone (see below), and deletion is the only removal
+  either app offers.
 - **CSV export**: `Name,Event,CheckedInAt` + a `TOTAL HEADCOUNT: n` row, CRLF,
   quoted cells, formula-neutralized (a leading `=` `+` `-` `@` gets an
   apostrophe so Excel renders text, not a formula). Same schema and escaping
@@ -106,6 +108,29 @@ On this side the picker is a searchable single-choice dialog with a "Type a
 name" escape hatch, shown in place of the free-text prompt whenever unclaimed
 roster names exist. The credential number is never written to the database.
 
+### Ending an event
+
+**End Event…** on the toolbar closes an event out for the books, and it is not
+destructive. A confirmation names the event and its check-in count, then the
+attendance CSV is saved through the usual SAF picker — **and the event is ended
+only once that file is actually written**. Cancelling the save, or a write that
+fails, aborts the whole thing and changes nothing: there is no path that closes
+an event with no record off the tablet.
+
+An ended event leaves the picker and stops accepting taps; its event row,
+attendance and people are all kept. If ending the last active event leaves none,
+the app asks for a new one exactly as on first launch. Ended events are archived
+history in v1 — no UI reopens one, and Delete event only reaches active events.
+
+This is where ending and deleting divide: ending is what happens to a real event
+when it is over, deleting is what happens to an event that should not exist.
+
+The toolbar moved to two rows for this — picker on top, `New Event…`,
+`End Event…` and `Export CSV` sharing the second by equal weight. Three
+touch-sized buttons beside the spinner on one row would squeeze it to nothing on
+a phone and clip the last button, the same failure cross-vendor review caught on
+the Windows toolbar.
+
 ### Deleting an event
 
 Setup → **Delete event** removes the selected event and every check-in recorded
@@ -121,9 +146,11 @@ The tension is deliberate: **attendance is append-only from the UI**, a privacy
 and audit posture, so neither twin offers "remove one check-in" — a single
 record cannot be quietly edited away. Deleting an event is event-level
 housekeeping for a test event or one created by mistake, and it takes the whole
-record with it, visibly. Export first if the record matters. No schema change
-was needed for any of this: it is DML against the v2 schema, so the database
-version stays at 2 and no migration runs.
+record with it, visibly. Export first if the record matters. Deletion itself
+needed no schema change — it is DML — but *ending* an event did: `events` gained
+a nullable `ended_at`, so the database went to **v3**. The upgrade is a single
+additive `ALTER TABLE`; existing events come back with `ended_at` NULL, which
+reads as active, because installing an APK must not end anybody's event.
 
 ## Privacy contract (deliberate, load-bearing)
 
@@ -173,13 +200,16 @@ header detection, the color rules, and the assertion that credential mapping
 stays disabled. No Robolectric and no device needed, because the tested code
 holds no Android types.
 
-`DbDeleteEventTest` is the one exception to "pure logic only", and it is worth
-the single test-only dependency (`org.xerial:sqlite-jdbc`, never packaged): it
-runs `Db`'s own schema and DELETE constants against a real SQLite engine, so
-deletion semantics — scoping, statement order under foreign keys, people and
-roster surviving, rollback on a mid-way failure — are pinned by execution rather
-than by reading the code. It does not exercise Android's `SQLiteDatabase`
-wrapper; that part stays on the manual checklist below.
+`DbDeleteEventTest` and `DbEndEventTest` are the exceptions to "pure logic
+only", and they are worth the single test-only dependency
+(`org.xerial:sqlite-jdbc`, never packaged): they run `Db`'s own schema and its
+DELETE / UPDATE / SELECT constants against a real SQLite engine. Deletion
+semantics (scoping, statement order under foreign keys, people and roster
+surviving, rollback on a mid-way failure), ending semantics (an ended event
+leaves the picker while its rows stay), and the **v2 → v3 migration against a
+table built in the old shape** are all pinned by execution rather than by
+reading the code. They do not exercise Android's `SQLiteDatabase` wrapper; that
+part stays on the manual checklist below.
 
 If a pinned version in `gradle/libs.versions.toml` fails to resolve, bump to
 the nearest available — nothing depends on those exact numbers.
@@ -232,6 +262,13 @@ submission.
 - [ ] After import, an unknown badge shows the name picker; typing narrows it;
       picking a name checks that person in; that name is not offered again for
       a second badge. "Type a name" still reaches the free-text prompt.
+- [ ] **End Event…**: the confirmation names the event and its check-in count;
+      confirming opens the save dialog. **Cancel the save** — the status says
+      the event was NOT ended, and it is still in the picker with its
+      attendance. Do it again and save the file: the CSV opens cleanly, the
+      event leaves the picker, and its attendees still tap through without a
+      name prompt at the next event. Ending the last active event prompts for a
+      new one.
 - [ ] Setup → Delete event: the confirmation names the event and its check-in
       count; cancelling (button, back, tap outside) changes nothing; confirming
       removes that event and its attendance only. Another event's list is
@@ -242,7 +279,9 @@ submission.
       than crashing.
 - [ ] Upgrading over the previously installed build (not a fresh install) keeps
       existing events, people and attendance — the v1 → v2 migration adds the
-      roster table without touching them.
+      roster table and v2 → v3 adds `events.ended_at` without touching them.
+      **Every existing event must still be in the picker after the upgrade**; if
+      one is missing, the migration defaulted it to ended and that is a stop.
 
 ## Files
 

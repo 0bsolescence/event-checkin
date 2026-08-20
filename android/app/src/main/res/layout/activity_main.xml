@@ -87,39 +87,66 @@
             android:contentDescription="@string/setup_title" />
     </LinearLayout>
 
+    <!-- Two rows, not one: three touch-sized buttons plus the picker on a single
+         horizontal LinearLayout would squeeze the spinner to nothing on a phone
+         and clip the last button, the same failure cross-vendor review caught on
+         the Windows toolbar. The buttons share the second row by equal weight,
+         so none of them can be pushed off-screen at any width. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        android:gravity="center_vertical">
+        android:orientation="vertical"
+        android:padding="8dp">
 
-        <TextView
-            android:id="@+id/event_label"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/event_label"
-            android:paddingEnd="8dp" />
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
 
-        <Spinner
-            android:id="@+id/event_spinner"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            <TextView
+                android:id="@+id/event_label"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/event_label"
+                android:paddingEnd="8dp" />
 
-        <Button
-            android:id="@+id/new_event"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/new_event" />
+            <Spinner
+                android:id="@+id/event_spinner"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/export_csv"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/export_csv" />
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/new_event"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/new_event" />
+
+            <Button
+                android:id="@+id/end_event"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/end_event" />
+
+            <Button
+                android:id="@+id/export_csv"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="@string/export_csv" />
+        </LinearLayout>
     </LinearLayout>
 
     <ListView

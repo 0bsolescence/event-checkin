@@ -43,9 +43,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
     }
 
     /** Additive only: an upgrade must never drop a table an event's attendance
-     *  or enrollments live in. v1 → v2 adds the imported-roster pool. */
+     *  or enrollments live in. v1 → v2 adds the imported-roster pool; v2 → v3
+     *  adds events.ended_at, which existing rows get as NULL — every event on
+     *  an upgraded install stays active, which is the honest default. */
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
         if (oldVersion < 2) db.execSQL(CREATE_ROSTER)
+        if (oldVersion < 3) db.execSQL(ALTER_EVENTS_ADD_ENDED_AT)
     }
 
     override fun onConfigure(db: SQLiteDatabase) {
@@ -85,10 +88,22 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
             put("created_at", now())
         })
 
+    /** Active events only — an ended event is closed for the books and leaves
+     *  the picker. Its attendance rows stay exactly where they were; nothing
+     *  about ending an event deletes anything. */
     fun listEvents(): List<Pair<Long, String>> =
-        readableDatabase.rawQuery("SELECT id,name FROM events ORDER BY id DESC", null).use { c ->
+        readableDatabase.rawQuery(LIST_ACTIVE_EVENTS, null).use { c ->
             buildList { while (c.moveToNext()) add(c.getLong(0) to c.getString(1)) }
         }
+
+    /** Closes an event out. Ending is bookkeeping, not deletion: the row and
+     *  its attendance survive, the event simply stops accepting taps because it
+     *  is no longer selectable. The caller exports first — on both twins an
+     *  event is never ended without its CSV having been written, so the record
+     *  leaves the device before the event leaves the picker. */
+    fun endEvent(eventId: Long) {
+        writableDatabase.execSQL(END_EVENT, arrayOf<Any>(now(), eventId))
+    }
 
     /** @return false if this person already checked in to this event. */
     fun recordTap(eventId: Long, uidHash: String): Boolean = try {
@@ -189,9 +204,10 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
     }
 
     companion object {
-        /** 2 added the roster pool; see onUpgrade before bumping again.
-         *  Event deletion needed no bump — it is DML against this same schema. */
-        const val VERSION = 2
+        /** 2 added the roster pool, 3 added events.ended_at; see onUpgrade
+         *  before bumping again. Event *deletion* needed no bump — that is DML
+         *  against this schema — but ending an event needed the column. */
+        const val VERSION = 3
 
         // The schema and the deletion statements are constants rather than
         // inline strings so the JVM unit tests can build the real tables and run
@@ -202,9 +218,12 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
         const val CREATE_PEOPLE =
             "CREATE TABLE IF NOT EXISTS people (uid_hash TEXT PRIMARY KEY, name TEXT NOT NULL, " +
                 "enrolled_at TEXT NOT NULL)"
+        /** ended_at NULL means active. A fresh install gets the column here; an
+         *  upgrade from v2 gets it from ALTER_EVENTS_ADD_ENDED_AT. */
         const val CREATE_EVENTS =
             "CREATE TABLE IF NOT EXISTS events (id INTEGER PRIMARY KEY AUTOINCREMENT, " +
-                "name TEXT NOT NULL, created_at TEXT NOT NULL)"
+                "name TEXT NOT NULL, created_at TEXT NOT NULL, ended_at TEXT)"
+        const val ALTER_EVENTS_ADD_ENDED_AT = "ALTER TABLE events ADD COLUMN ended_at TEXT"
         const val CREATE_ATTENDANCE =
             "CREATE TABLE IF NOT EXISTS attendance (event_id INTEGER NOT NULL REFERENCES events(id), " +
                 "uid_hash TEXT NOT NULL REFERENCES people(uid_hash), " +
@@ -213,6 +232,9 @@ class Db(context: Context) : SQLiteOpenHelper(context, "checkin.db", null, VERSI
             "CREATE TABLE IF NOT EXISTS roster (name TEXT PRIMARY KEY COLLATE NOCASE, " +
                 "added_at TEXT NOT NULL)"
 
+        const val LIST_ACTIVE_EVENTS =
+            "SELECT id,name FROM events WHERE ended_at IS NULL ORDER BY id DESC"
+        const val END_EVENT = "UPDATE events SET ended_at=? WHERE id=?"
         const val COUNT_ATTENDANCE = "SELECT COUNT(*) FROM attendance WHERE event_id=?"
         const val DELETE_ATTENDANCE_FOR_EVENT = "DELETE FROM attendance WHERE event_id=?"
         const val DELETE_EVENT = "DELETE FROM events WHERE id=?"

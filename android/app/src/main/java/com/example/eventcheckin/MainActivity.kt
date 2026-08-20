@@ -65,6 +65,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var eventLabel: TextView
     private lateinit var setupButton: Button
     private lateinit var newEventButton: Button
+    private lateinit var endEventButton: Button
     private lateinit var exportButton: Button
     private lateinit var headcount: TextView
     private lateinit var status: TextView
@@ -103,6 +104,43 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+    // Ending an event exports first and only ends if that export is WRITTEN, so
+    // the CSV and the event it closes travel together. Held separately from
+    // pendingCsv because a plain export must never end anything, and saved in
+    // instance state for the same reason: the activity can be recreated while
+    // the SAF picker is open, and the callback has to still know what it was
+    // ending. A recreation that loses this state ends nothing — the safe way to
+    // fail.
+    private var pendingEndCsv: String? = null
+    private var pendingEndId: Long? = null
+    private var pendingEndName: String? = null
+    private val endExportLauncher =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/csv")) { uri ->
+            val csv = pendingEndCsv
+            val id = pendingEndId
+            val name = pendingEndName
+            pendingEndCsv = null; pendingEndId = null; pendingEndName = null
+            if (uri == null || csv == null || id == null || name == null) {
+                status.text = getString(R.string.end_event_cancelled)
+                return@registerForActivityResult
+            }
+            try {
+                val out = contentResolver.openOutputStream(uri)
+                    ?: throw java.io.IOException("resolver returned no stream")
+                out.use { it.write(csv.toByteArray(Charsets.UTF_8)) }
+            } catch (e: Exception) {
+                // The export is the precondition, not a courtesy: a failed write
+                // leaves the event open rather than closing it with no record
+                // off the device.
+                status.text = getString(
+                    R.string.export_failed, e.localizedMessage ?: e.javaClass.simpleName)
+                return@registerForActivityResult
+            }
+            db.endEvent(id)
+            refreshEvents()
+            status.text = getString(R.string.event_ended, name)
+        }
+
     // OpenDocument filters are wide on purpose: file providers hand JSON and CSV
     // over as application/octet-stream often enough that a strict filter makes
     // the very file the user came to pick unselectable.
@@ -129,6 +167,11 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContentView(R.layout.activity_main)
         pendingCsv = savedInstanceState?.getString(KEY_PENDING_CSV)
+        savedInstanceState?.getString(KEY_PENDING_END_CSV)?.let { csv ->
+            pendingEndCsv = csv
+            pendingEndId = savedInstanceState.getLong(KEY_PENDING_END_ID)
+            pendingEndName = savedInstanceState.getString(KEY_PENDING_END_NAME)
+        }
 
         db = Db(this)
         beeper = ToneGenerator(AudioManager.STREAM_NOTIFICATION, 80)
@@ -144,6 +187,7 @@ class MainActivity : AppCompatActivity() {
         eventSpinner = findViewById(R.id.event_spinner)
         setupButton = findViewById(R.id.setup)
         newEventButton = findViewById(R.id.new_event)
+        endEventButton = findViewById(R.id.end_event)
         exportButton = findViewById(R.id.export_csv)
         status = findViewById(R.id.status)
         rows = ThemedRows()
@@ -152,6 +196,7 @@ class MainActivity : AppCompatActivity() {
         applyInsets()
 
         newEventButton.setOnClickListener { newEvent() }
+        endEventButton.setOnClickListener { confirmEndEvent() }
         exportButton.setOnClickListener { export() }
         setupButton.setOnClickListener { showSetupMenu() }
         // Second way in, for anyone who reaches for the title first.
@@ -205,6 +250,7 @@ class MainActivity : AppCompatActivity() {
         status.setTextColor(brand.onPrimary)
         eventLabel.setTextColor(brand.foreground)
         newEventButton.setTextColor(brand.primary)
+        endEventButton.setTextColor(brand.primary)
         exportButton.setTextColor(brand.primary)
         val logo = brand.logo
         if (logo != null) {
@@ -248,6 +294,16 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         pendingCsv?.let { outState.putString(KEY_PENDING_CSV, it) }
+        // All three or none: a half-restored end would either write a CSV and
+        // end nothing, or end an event whose CSV never reached the picker.
+        val endCsv = pendingEndCsv
+        val endId = pendingEndId
+        val endName = pendingEndName
+        if (endCsv != null && endId != null && endName != null) {
+            outState.putString(KEY_PENDING_END_CSV, endCsv)
+            outState.putLong(KEY_PENDING_END_ID, endId)
+            outState.putString(KEY_PENDING_END_NAME, endName)
+        }
     }
 
     override fun onDestroy() {
@@ -610,10 +666,44 @@ class MainActivity : AppCompatActivity() {
         val ev = eventId ?: return
         val name = eventName ?: return
         pendingCsv = db.buildCsv(ev, name)
-        val safe = name.replace(Regex("[^A-Za-z0-9 ._-]"), "_")
+        exportLauncher.launch(exportFileName(name))
+    }
+
+    /** Ending an event closes it for the books: export first, and only end if
+     *  that export is actually written. An event that leaves the picker with no
+     *  CSV off the device is the one outcome this must never produce, so a
+     *  cancelled or failed save aborts the whole thing and changes nothing. */
+    private fun confirmEndEvent() {
+        val id = eventId
+        val name = eventName
+        if (id == null || name == null) {
+            status.text = getString(R.string.end_event_none)
+            return
+        }
+        val count = db.attendanceCount(id)
+        tapBusy = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.end_event_title)
+            .setMessage(getString(
+                R.string.end_event_confirm, name,
+                resources.getQuantityString(R.plurals.check_ins, count, count)))
+            .setPositiveButton(R.string.end_event_button) { _, _ ->
+                pendingEndCsv = db.buildCsv(id, name)
+                pendingEndId = id
+                pendingEndName = name
+                endExportLauncher.launch(exportFileName(name))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .setOnDismissListener { tapBusy = false }
+            .show()
+    }
+
+    /** SAF uniquifies on collision — an earlier audit snapshot is never
+     *  overwritten, whether it came from Export CSV or from ending an event. */
+    private fun exportFileName(eventName: String): String {
+        val safe = eventName.replace(Regex("[^A-Za-z0-9 ._-]"), "_")
         val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"))
-        // SAF uniquifies on collision — an earlier audit snapshot is never overwritten.
-        exportLauncher.launch("attendance_${safe}_$stamp.csv")
+        return "attendance_${safe}_$stamp.csv"
     }
 
     private fun updateCount() {
@@ -666,6 +756,9 @@ class MainActivity : AppCompatActivity() {
 
     private companion object {
         const val KEY_PENDING_CSV = "pending_csv"
+        const val KEY_PENDING_END_CSV = "pending_end_csv"
+        const val KEY_PENDING_END_ID = "pending_end_id"
+        const val KEY_PENDING_END_NAME = "pending_end_name"
 
         /** A personnel roster is a few thousand names; anything larger is not one. */
         const val MAX_ROSTER_BYTES = 5 * 1024 * 1024

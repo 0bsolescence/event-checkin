@@ -7,6 +7,7 @@
 
     <string name="event_label">Event:</string>
     <string name="new_event">New Event…</string>
+    <string name="end_event">End Event…</string>
     <string name="export_csv">Export CSV</string>
     <string name="headcount_label">HEADCOUNT</string>
     <string name="zero">0</string>
@@ -74,6 +75,15 @@
         <item quantity="one">%d check-in</item>
         <item quantity="other">%d check-ins</item>
     </plurals>
+
+    <!-- Ending an event: exported first, then closed for the books. The event
+         and its records survive; it simply leaves the picker. -->
+    <string name="end_event_title">End event</string>
+    <string name="end_event_button">Export and end</string>
+    <string name="end_event_none">No event selected — nothing to end.</string>
+    <string name="end_event_confirm">End \"%1$s\" with %2$s?\n\nThe attendance CSV is saved first — pick where it goes, and the event is ended only once the file is written. Cancelling the save cancels the whole thing.\n\nThe event then leaves the picker and stops accepting taps. Its records are kept, not deleted.</string>
+    <string name="end_event_cancelled">Event NOT ended — the export was cancelled, so nothing changed.</string>
+    <string name="event_ended">Ended and exported: %1$s</string>
 
     <!-- Unknown-badge identity picker -->
     <string name="pick_title">Who is this badge?</string>
