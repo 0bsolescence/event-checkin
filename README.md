@@ -37,8 +37,10 @@ boxes check on Windows 11 with a real reader and card.
   (same Get-UID pseudo-APDU); untested.
 - Works with any 13.56 MHz ISO 14443 badge (e.g. MIFARE DESFire EV2 access
   cards, a common choice for physical access control). The app reads the
-  ISO 14443 UID, not any vendor credential file — hence enroll-on-first-tap
-  instead of a roster import.
+  ISO 14443 UID, not any vendor credential file. Whether that UID is derivable
+  from the access system's credential number is **unverified** — which is why a
+  roster import resolves names by picker rather than by pre-enrolling badges
+  (see "Roster import" below).
 
 ## Build (on Windows, .NET 8 SDK installed)
 
@@ -82,15 +84,49 @@ Schema (see `themes/theme.example.json`):
 - `themes/local/` is gitignored: organization themes and logos stay on the
   machine and never enter the repo.
 
+## Roster import
+
+**Import Roster…** takes a personnel list exported from the badge-access
+system (DMP EverOn / Virtual Keypad) so that taps resolve to names without
+anyone typing at the door. The same feature exists on the Android twin.
+
+Accepted CSV shapes — the header is sniffed, not positional:
+
+- **Name**: a column named exactly `Name` wins; then `Full Name`,
+  `Display Name`, `Employee Name`, `Person Name`; then a `First Name` +
+  `Last Name` pair, joined with a space; then any header containing "name".
+- **Credential**: any header containing "credential" or "card"; one that also
+  carries a number word (`number`, `no`, `#`, `id`) wins.
+- Quoted cells, embedded commas and newlines, CRLF or LF, and a UTF-8 BOM are
+  all handled. Rows with no name, and repeats of a name already imported, are
+  counted as skipped rather than guessed at. A file with no name column is
+  refused with a message; nothing is stored.
+
+There are two resolution modes, and today only the second one runs:
+
+- **MAPPED** — if a credential number can be turned into badge UID bytes, the
+  person is enrolled at import time and their first tap simply checks them in.
+  **This is off.** `Roster.CredentialToUidBytes` is a marked placeholder that
+  returns null, because whether the credential number relates to the NFC UID at
+  all is unverified (Step 4 of `THURSDAY-HANDOFF.md`). Guessing a transform
+  would silently enroll people under each other's names.
+- **PICKER** — the working path, and correct either way. Imported rows are kept
+  as **names only**; the credential number is dropped and never written to the
+  database. An unknown badge then shows a searchable list of unclaimed roster
+  names plus a "Type a Name" escape hatch. Choosing a name binds it to that
+  badge exactly like typing it would, and removes it from the unclaimed pool.
+
 ## Use
 
 1. Plug in the reader, run the exe. Status bar shows "Reader ready".
 2. **New Event…** → name it (e.g. `All-Hands BBQ 2026-08-21`).
-3. People tap as they come in. Unknown badge → one-time name prompt (enrolled
-   forever after). Duplicate taps at the same event are refused, not doubled.
-4. **Export CSV** → `attendance_<event>_<stamp>.csv` with name, event,
+3. Optionally **Import Roster…** so names can be picked instead of typed.
+4. People tap as they come in. Unknown badge → pick from the roster, or type a
+   name (enrolled forever after). Duplicate taps at the same event are refused,
+   not doubled.
+5. **Export CSV** → `attendance_<event>_<stamp>.csv` with name, event,
    timestamp, and a TOTAL HEADCOUNT row. Attach to the purchase file.
-5. Visitors without badges: paper sign-in line.
+6. Visitors without badges: paper sign-in line.
 
 ## Verification checklist (run before calling any of this real)
 
@@ -113,6 +149,15 @@ Schema (see `themes/theme.example.json`):
 - [ ] Machine with no network: everything above still works (local-only claim).
 - [ ] Theme applies: with a `theme.json` in place, title/colors/logo change;
       with it removed, the neutral default returns.
+- [ ] Roster import: a real export from the access system is accepted, the
+      dialog names the columns it found, and the count adds up. A file with no
+      name column, an empty file, and a 10 MB file are each refused with a
+      message and no crash.
+- [ ] After import, an unknown badge shows the name picker; searching narrows
+      it; picking a name checks that person in and removes them from the pool;
+      the same name is not offered for a second badge.
+- [ ] "Type a Name" still works with a roster loaded, and is the only path when
+      no roster has been imported.
 
 ## License
 

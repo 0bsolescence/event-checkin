@@ -33,6 +33,11 @@ public sealed class MainWindow : Window
     // so queued reader callbacks would otherwise open a second prompt).
     private bool _tapBusy;
 
+    private const string EnrollText = "New badge — enter this person's name:";
+
+    /// <summary>A personnel roster is a few thousand names; anything larger is not one.</summary>
+    private const long MaxRosterBytes = 5 * 1024 * 1024;
+
     /// <summary>Data lives in %LOCALAPPDATA%\BadgeCheckIn — the exe itself can sit
     /// anywhere, including read-only media or Program Files.</summary>
     public static string DataDir
@@ -116,6 +121,7 @@ public sealed class MainWindow : Window
         };
         var newEvent = MakeButton("New Event…");
         var export = MakeButton("Export CSV");
+        var importRoster = MakeButton("Import Roster…");
         var toolbar = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(24, 16, 24, 8) };
         toolbar.Children.Add(new TextBlock
         {
@@ -125,6 +131,7 @@ public sealed class MainWindow : Window
         toolbar.Children.Add(_eventBox);
         toolbar.Children.Add(newEvent);
         toolbar.Children.Add(export);
+        toolbar.Children.Add(importRoster);
 
         // -- Roster: large live list, newest tap on top.
         var grid = new GridView();
@@ -170,6 +177,7 @@ public sealed class MainWindow : Window
 
         newEvent.Click += (_, _) => NewEvent();
         export.Click += (_, _) => Export();
+        importRoster.Click += (_, _) => ImportRoster();
         _eventBox.SelectionChanged += (_, _) => SelectEvent();
 
         _reader.StatusChanged += s => SafeDispatch(() => _status.Text = s);
@@ -233,10 +241,12 @@ public sealed class MainWindow : Window
             _tapBusy = true;
             try
             {
-                name = Prompt("New badge — enter this person's name:", "Enroll");
+                name = PromptIdentity();
                 if (string.IsNullOrWhiteSpace(name)) { _status.Text = "Enrollment cancelled."; return; }
-                _db.Enroll(hash, name.Trim());
                 name = name.Trim();
+                _db.Enroll(hash, name);
+                // Claimed: this name is no longer waiting in the unmatched pool.
+                _db.RemoveRosterName(name);
             }
             finally { _tapBusy = false; }
         }
@@ -248,6 +258,157 @@ public sealed class MainWindow : Window
         }
         else _status.Text = $"{name} is already checked in.";
         UpdateCount();
+    }
+
+    /// <summary>An unknown badge asks who it belongs to. With an imported roster
+    /// that is a search-and-pick from the names nobody has claimed yet; without
+    /// one it is the same free-text prompt the app has always used.</summary>
+    private string? PromptIdentity()
+    {
+        var pool = _db.RosterNames();
+        if (pool.Count == 0) return Prompt(EnrollText, "Enroll");
+        var (picked, typeInstead) = PickFromRoster(pool);
+        return typeInstead ? Prompt(EnrollText, "Enroll") : picked;
+    }
+
+    private (string? Name, bool TypeInstead) PickFromRoster(List<string> pool)
+    {
+        var search = new TextBox
+        {
+            FontSize = 18, Padding = new Thickness(6), Margin = new Thickness(0, 8, 0, 8)
+        };
+        var list = new ListBox { FontSize = 20, Height = 340, Foreground = _theme.ForegroundBrush };
+        foreach (var name in pool) list.Items.Add(name);
+
+        var ok = MakeButton("Check In");
+        var type = MakeButton("Type a Name");
+        var cancel = MakeButton("Cancel");
+        cancel.IsCancel = true;
+        var buttons = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
+            Margin = new Thickness(0, 12, 0, 0)
+        };
+        buttons.Children.Add(type);
+        buttons.Children.Add(cancel);
+        buttons.Children.Add(ok);
+
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock
+        {
+            Text = "Search the imported roster, or type a name instead:",
+            FontSize = 16, TextWrapping = TextWrapping.Wrap, Foreground = _theme.ForegroundBrush
+        });
+        panel.Children.Add(search);
+        panel.Children.Add(list);
+        panel.Children.Add(buttons);
+
+        var dlg = new Window
+        {
+            Title = "Who is this badge?", Width = 480, SizeToContent = SizeToContent.Height,
+            ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+            Owner = IsVisible ? this : null,
+            WindowStartupLocation = IsVisible
+                ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
+            Content = panel, Background = _theme.BackgroundBrush
+        };
+
+        string? chosen = null;
+        var typeInstead = false;
+        void Choose()
+        {
+            if (list.SelectedItem is not string picked) return;
+            chosen = picked;
+            dlg.DialogResult = true;
+        }
+        search.TextChanged += (_, _) =>
+        {
+            list.Items.Clear();
+            foreach (var name in Roster.FilterNames(pool, search.Text)) list.Items.Add(name);
+        };
+        list.MouseDoubleClick += (_, _) => Choose();
+        ok.Click += (_, _) => Choose();
+        type.Click += (_, _) => { typeInstead = true; dlg.DialogResult = true; };
+        dlg.Loaded += (_, _) => search.Focus();
+        dlg.ShowDialog();
+        return (chosen, typeInstead);
+    }
+
+    /// <summary>Imports a personnel list exported from the badge-access system.
+    /// Nothing here can take the kiosk down: an unreadable, oversized or
+    /// unrecognizable file is refused with a message and no rows are stored.</summary>
+    private void ImportRoster()
+    {
+        var picker = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = "Import personnel roster",
+            Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*",
+            CheckFileExists = true
+        };
+        if (picker.ShowDialog(this) != true) return;
+
+        string text;
+        try
+        {
+            // A personnel roster is a few thousand names; anything larger is not one.
+            if (new FileInfo(picker.FileName).Length > MaxRosterBytes)
+            {
+                ImportFailed("That file is too large to be a roster (limit 5 MB) — nothing imported.");
+                return;
+            }
+            text = File.ReadAllText(picker.FileName);
+        }
+        catch (Exception e)
+        {
+            ImportFailed($"Could not read that file — nothing imported: {e.Message}");
+            return;
+        }
+
+        var result = Roster.Import(text);
+        if (result.Error is string error) { ImportFailed(error); return; }
+        if (result.Entries.Count == 0)
+        {
+            ImportFailed("No usable rows in that file — nothing imported.");
+            return;
+        }
+
+        int mapped = 0, pooled = 0;
+        try
+        {
+            foreach (var entry in result.Entries)
+            {
+                // MAPPED: the credential number resolved to badge bytes, so this
+                // person is enrolled now and their first tap just checks them in.
+                var uid = entry.Credential is null ? null : Roster.CredentialToUidBytes(entry.Credential);
+                if (uid is not null)
+                {
+                    _db.Enroll(_db.HashUid(uid), entry.Name);
+                    _db.RemoveRosterName(entry.Name);
+                    mapped++;
+                }
+                // PICKER: name only, waiting to be claimed by a badge.
+                else if (_db.AddRosterName(entry.Name)) pooled++;
+            }
+        }
+        catch (Exception e)
+        {
+            ImportFailed($"Import stopped partway — {mapped + pooled} names were stored: {e.Message}");
+            return;
+        }
+
+        var summary = $"Imported {result.Entries.Count} names: {mapped} pre-enrolled, " +
+                      $"{pooled} waiting for a first tap. {result.Skipped} rows skipped.";
+        _status.Text = summary;
+        MessageBox.Show(this,
+            $"{summary}\n\nName column: {result.NameHeader ?? "?"}. " +
+            $"Credential column: {result.CredentialHeader ?? "none found"}.",
+            "Import roster");
+    }
+
+    private void ImportFailed(string message)
+    {
+        _status.Text = message;
+        MessageBox.Show(this, message, "Import roster");
     }
 
     private void Export()

@@ -29,6 +29,8 @@ public sealed class Db : IDisposable
                                                uid_hash TEXT NOT NULL REFERENCES people(uid_hash),
                                                tapped_at TEXT NOT NULL,
                                                UNIQUE(event_id, uid_hash));
+            CREATE TABLE IF NOT EXISTS roster (name TEXT PRIMARY KEY COLLATE NOCASE,
+                                               added_at TEXT NOT NULL);
             """);
         // Per-install random salt, created once. Deleting the DB re-keys everything.
         if (Scalar("SELECT value FROM meta WHERE key='salt'") is null)
@@ -85,6 +87,35 @@ public sealed class Db : IDisposable
         // swallow FK/NOT NULL/CHECK failures and mislabel them "already checked in".
         catch (SqliteException e) when (e.SqliteExtendedErrorCode == 2067) { return false; }
     }
+
+    /// <summary>Adds an imported name to the unmatched pool. Name only — the
+    /// credential number that came with it is deliberately not stored.</summary>
+    /// <returns>false if that name was already in the pool.</returns>
+    public bool AddRosterName(string name)
+    {
+        Exec("INSERT OR IGNORE INTO roster(name,added_at) VALUES($n,$t)",
+             ("$n", name), ("$t", DateTime.Now.ToString("o")));
+        return Convert.ToInt64(Scalar("SELECT changes()")) > 0;
+    }
+
+    /// <summary>Imported names nobody has tapped a badge against yet. Anyone
+    /// already enrolled is excluded even if a later import put their name back.</summary>
+    public List<string> RosterNames()
+    {
+        var list = new List<string>();
+        using var cmd = _con.CreateCommand();
+        cmd.CommandText = """
+            SELECT name FROM roster WHERE name NOT IN (SELECT name FROM people)
+            ORDER BY name COLLATE NOCASE
+            """;
+        using var r = cmd.ExecuteReader();
+        while (r.Read()) list.Add(r.GetString(0));
+        return list;
+    }
+
+    /// <summary>Leaves the pool once bound to a badge, however the name was chosen.</summary>
+    public void RemoveRosterName(string name) =>
+        Exec("DELETE FROM roster WHERE name=$n COLLATE NOCASE", ("$n", name));
 
     public List<(string name, string tappedAt)> Attendance(long eventId)
     {
