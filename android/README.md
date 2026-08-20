@@ -39,10 +39,10 @@ on the tablet yet.
 
 The **⋮** button at the right of the header opens Setup; long-pressing the
 header title opens the same menu, for anyone who reaches for that first. It
-holds five actions: Import theme, Import logo image, Reset theme to neutral,
-Import roster (CSV), and Delete event. The imports all arrive through the
-Storage Access Framework, so none of them costs a permission and no file manager
-needs one either.
+holds six actions: Import theme, Import logo image, Reset theme to neutral,
+Import roster (CSV), Show badge id on next tap, and Delete event. The imports
+all arrive through the Storage Access Framework, so none of them costs a
+permission and no file manager needs one either.
 
 **Delete event** sits here rather than on the toolbar on purpose: the toolbar is
 what door staff touch during an event, and a destructive action does not belong
@@ -107,6 +107,31 @@ carries the unit tests for them.
 On this side the picker is a searchable single-choice dialog with a "Type a
 name" escape hatch, shown in place of the free-text prompt whenever unclaimed
 roster names exist. The credential number is never written to the database.
+
+The real Virtual Keypad export was seen on 2026-08-20 and its card field is
+`External_Number` (`R_123456`), so both twins now also accept an "external"
+header carrying a number word, and strip a leading `letters_` tag from the
+value. `Number` (the internal row id) and `Code` (**the keypad PIN**) can never
+be selected — pinned by tests on both sides, because a PIN quietly imported as a
+badge number would be both wrong and a disclosure.
+
+### Show badge id on next tap
+
+A one-shot diagnostic: arm it in Setup and the **next** badge tapped shows its
+raw id — hex and decimal, each read both ways round, plus the byte length —
+instead of checking anyone in. Byte order is the reason there are four readings:
+which end an access system starts from is exactly what nobody documents.
+
+It exists to settle whether an `External_Number` relates to the UID the reader
+sees (Step 4 of `../THURSDAY-HANDOFF.md`). Until that verdict exists, credential
+mapping stays off.
+
+**Nothing is stored.** The reading is not hashed, written, logged or exported,
+the badge is not enrolled or checked in, and the toggle disarms itself after one
+tap. It is deliberately not saved in instance state either: a diagnostic that
+survived a recreation the operator did not expect would eat somebody's check-in
+later. The text is selectable so the number can be copied rather than
+mis-transcribed.
 
 ### Ending an event
 
@@ -256,6 +281,14 @@ submission.
 - [ ] Malformed input is refused, not fatal: a `.txt` that is not JSON, a
       non-image "logo", and a huge file each show a status message with the
       previous theme still in place.
+- [ ] Setup → Import roster on the REAL Virtual Keypad export: the summary
+      dialog must say **Name column: Name** and **Credential column:
+      External_Number**. If it names `Code`, stop and tell me — that is the
+      keypad PIN.
+- [ ] Setup → Show badge id on next tap: the status line says it is armed, the
+      next tap shows the reading, the person is **not** checked in and the
+      headcount does not move. The tap after that checks in normally. Send me
+      the block together with that badge's `External_Number`.
 - [ ] Setup → Import roster on a real access-system export: the summary dialog
       names the columns it found and the counts add up. A file with no name
       column is refused with a message.
@@ -297,6 +330,7 @@ android/
     │   │   ├── Db.kt                # SQLiteOpenHelper twin of ../src/Db.cs
     │   │   ├── Theme.kt             # runtime branding, twin of ../src/Theme.cs
     │   │   ├── Roster.kt            # pure CSV import, twin of ../src/Roster.cs
+    │   │   ├── BadgeId.kt           # pure UID readings, twin of ../src/BadgeId.cs
     │   │   └── MainActivity.kt      # single activity, NFC reader mode, SAF
     │   └── res/                     # layout + neutral defaults only
     └── src/test/                    # plain JUnit over the pure logic

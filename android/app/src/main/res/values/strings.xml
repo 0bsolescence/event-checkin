@@ -41,6 +41,14 @@
     <string name="setup_reset_theme">Reset theme to neutral</string>
     <string name="setup_import_roster">Import roster (CSV)…</string>
     <string name="setup_delete_event">Delete event…</string>
+    <string name="setup_show_badge_id">Show badge id on next tap</string>
+
+    <!-- One-shot badge-id diagnostic. Display only: the reading is shown and
+         dropped, nothing is hashed, stored, logged or checked in. -->
+    <string name="badge_id_armed">Armed — the NEXT badge tapped will show its id instead of checking in.</string>
+    <string name="badge_id_title">Badge id</string>
+    <string name="badge_id_message">Bytes: %1$d\n\nHex (as read): %2$s\nHex (byte-reversed): %3$s\n\nDecimal (as read): %4$s\nDecimal (byte-reversed): %5$s\n\nNothing was stored and nobody was checked in. The next tap behaves normally.</string>
+    <string name="badge_id_shown">Badge id shown — nothing was stored, and the diagnostic is off again.</string>
 
     <string name="theme_imported">Theme imported.</string>
     <string name="theme_invalid">Not a valid theme file — nothing changed.</string>

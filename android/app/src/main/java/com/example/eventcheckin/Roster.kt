@@ -42,7 +42,17 @@ object Roster {
      * then `First Name` + `Last Name` as a pair; then any header containing
      * "name" (one not qualified by first/last/middle/nick wins over one that is).
      * credential — any header containing "credential" or "card"; one that also
-     * carries a number word (`number`, `no`, `#`, `id`) wins.
+     * carries a number word (`number`, `no`, `#`, `id`) wins. Failing that, a
+     * header containing "external" AND a number word — Virtual Keypad's real
+     * export calls the card field `External_Number`. "External" alone is not
+     * enough: the word is generic, and a column that is not a number cannot be
+     * a credential.
+     *
+     * What must NEVER be picked, and is pinned by tests: `Number` (Virtual
+     * Keypad's internal row id) and `Code` (the user's keypad PIN). Neither
+     * carries a credential/card/external word, so neither is a candidate — and
+     * a PIN silently treated as a badge number would be both wrong and a
+     * disclosure.
      */
     fun detectColumns(header: List<String>): Columns {
         val h = header.map { it.trim().lowercase() }
@@ -63,10 +73,16 @@ object Roster {
             if (full < 0) full = h.indexOfFirst { it.contains("name") }
         }
 
-        val candidates = h.indices.filter { h[it].contains("credential") || h[it].contains("card") }
         val numbered = Regex("""number|\bno\b|#|\bid\b""")
-        val credential = candidates.firstOrNull { numbered.containsMatchIn(h[it]) }
-            ?: candidates.firstOrNull() ?: -1
+        val named = h.indices.filter { h[it].contains("credential") || h[it].contains("card") }
+        val external = h.indices.filter { h[it].contains("external") && numbered.containsMatchIn(h[it]) }
+        // An explicitly named credential/card column always outranks the
+        // external one: a system that says "card number" means it, while
+        // "external" only usually does.
+        val credential = named.firstOrNull { numbered.containsMatchIn(h[it]) }
+            ?: named.firstOrNull()
+            ?: external.firstOrNull()
+            ?: -1
 
         return Columns(full, first, last, credential)
     }
@@ -91,7 +107,7 @@ object Roster {
                 continue
             }
             val credential =
-                if (cols.credential >= 0) row.getOrNull(cols.credential)?.trim()?.ifEmpty { null }
+                if (cols.credential >= 0) normalizeCredential(row.getOrNull(cols.credential))
                 else null
             entries.add(Entry(name, credential))
         }
@@ -100,6 +116,24 @@ object Roster {
             nameHeader = header.getOrNull(if (cols.full >= 0) cols.full else cols.first)?.trim(),
             credentialHeader = header.getOrNull(cols.credential)?.trim(),
             skipped = skipped)
+    }
+
+    /**
+     * Strips a leading alphabetic tag from a credential value: Virtual Keypad
+     * writes `R_123456`, where only the digits relate to the card. Done once
+     * here, at import, so everything downstream — the transform included — sees
+     * the number and never the tag.
+     *
+     * Only a leading `letters_` prefix is removed. The rest of the value is
+     * left exactly as it is: what those digits MEAN is the open question Step 4
+     * answers, and this is not the place to guess at it.
+     *
+     * @return the normalized value, or null when there is nothing left to use.
+     */
+    fun normalizeCredential(raw: String?): String? {
+        val s = raw?.trim().orEmpty()
+        if (s.isEmpty()) return null
+        return s.replaceFirst(Regex("^[A-Za-z]+_"), "").ifEmpty { null }
     }
 
     private fun nameOf(row: List<String>, cols: Columns): String {

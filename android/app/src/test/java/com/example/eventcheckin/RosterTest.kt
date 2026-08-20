@@ -58,6 +58,73 @@ class RosterTest {
         assertEquals(0, Roster.detectColumns(listOf("Username", "Department")).full)
     }
 
+    /** The REAL Virtual Keypad export header, as it actually arrives. Name is
+     *  the exact match at index 1 and External_Number is the card field at
+     *  index 3 — this row is the whole reason the external rule exists. */
+    @Test
+    fun `the real Virtual Keypad export header resolves Name and External_Number`() {
+        val cols = Roster.detectColumns(VIRTUAL_KEYPAD_HEADER)
+        assertEquals(1, cols.full)
+        assertEquals(3, cols.credential)
+        assertTrue(cols.hasName)
+    }
+
+    /** The load-bearing negative. `Number` is Virtual Keypad's internal row id
+     *  and `Code` is the user's keypad PIN; picking either would be wrong, and
+     *  picking Code would put PINs through the credential path. Neither may be
+     *  selected, and neither may reach an Entry. */
+    @Test
+    fun `Number and Code are never chosen and never stored`() {
+        val cols = Roster.detectColumns(VIRTUAL_KEYPAD_HEADER)
+        assertEquals(0, VIRTUAL_KEYPAD_HEADER.indexOf("Number"))
+        assertEquals(7, VIRTUAL_KEYPAD_HEADER.indexOf("Code"))
+        assertTrue("Number must not be the credential column", cols.credential != 0)
+        assertTrue("Code must not be the credential column", cols.credential != 7)
+
+        val result = Roster.import(
+            VIRTUAL_KEYPAD_HEADER.joinToString(",") + "\n" +
+                "41,Jane Doe,Yes,R_123456,Staff,All,All,9182,Card\n")
+        assertEquals(listOf("Jane Doe"), result.entries.map { it.name })
+        // The row id and the PIN appear nowhere in what was imported.
+        val credentials = result.entries.mapNotNull { it.credential }
+        assertEquals(listOf("123456"), credentials)
+        assertTrue("the keypad PIN must never be imported", credentials.none { it == "9182" })
+        assertTrue("the row id must never be imported", credentials.none { it == "41" })
+        assertEquals("External_Number", result.credentialHeader)
+        assertEquals("Name", result.nameHeader)
+    }
+
+    /** "External" on its own is generic — a column that is not a number cannot
+     *  be a credential. */
+    @Test
+    fun `an external column without a number word is not a credential`() {
+        assertEquals(-1, Roster.detectColumns(listOf("Name", "External System", "Active")).credential)
+    }
+
+    /** A system that says "card number" means it; "external" only usually does. */
+    @Test
+    fun `a card column outranks an external one`() {
+        val cols = Roster.detectColumns(listOf("Name", "External_Number", "Card Number"))
+        assertEquals(2, cols.credential)
+    }
+
+    /** Virtual Keypad writes R_123456; only the digits relate to the card, and
+     *  the transform must never see the tag. */
+    @Test
+    fun `a leading alpha tag is stripped from credential values`() {
+        assertEquals("123456", Roster.normalizeCredential("R_123456"))
+        assertEquals("123456", Roster.normalizeCredential("  R_123456  "))
+        assertEquals("123456", Roster.normalizeCredential("ABC_123456"))
+        // Only a LEADING letters_ prefix, and only the first one.
+        assertEquals("123_456", Roster.normalizeCredential("R_123_456"))
+        assertEquals("4711", Roster.normalizeCredential("4711"))
+        assertEquals("0A1B2C3D", Roster.normalizeCredential("0A1B2C3D"))
+        // Nothing usable left, or nothing to begin with.
+        assertNull(Roster.normalizeCredential("R_"))
+        assertNull(Roster.normalizeCredential("   "))
+        assertNull(Roster.normalizeCredential(null))
+    }
+
     @Test
     fun `a numbered credential header beats a bare one`() {
         val cols = Roster.detectColumns(listOf("Name", "Card Format", "Card Number"))
@@ -125,4 +192,11 @@ class RosterTest {
     }
 
     private fun ByteArray.toHex() = joinToString("") { "%02X".format(it) }
+
+    private companion object {
+        /** Verbatim from the real export, 2026-08-20. */
+        val VIRTUAL_KEYPAD_HEADER = listOf(
+            "Number", "Name", "Active", "External_Number", "Profiles",
+            "Arm/Disarm Areas", "Access Areas", "Code", "Type")
+    }
 }

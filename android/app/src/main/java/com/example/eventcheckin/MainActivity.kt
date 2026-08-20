@@ -79,6 +79,12 @@ class MainActivity : AppCompatActivity() {
     // are ignored so two quick unknown-badge reads cannot stack dialogs.
     private var tapBusy = false
 
+    // Armed by Setup → Show badge id on next tap, consumed by the very next
+    // read. Deliberately NOT saved in instance state: a diagnostic that
+    // survives a recreation the operator did not expect is a diagnostic that
+    // eats somebody's check-in later.
+    private var showNextBadgeId = false
+
     // CSV content built at click time, written when the SAF picker returns.
     // Saved in onSaveInstanceState: the activity can be recreated while the
     // picker is open, and the result callback must still find the content.
@@ -319,6 +325,16 @@ class MainActivity : AppCompatActivity() {
             status.text = getString(R.string.status_unreadable)
             return
         }
+        // The diagnostic runs BEFORE anything else touches the badge: no hash,
+        // no lookup, no enrollment, no check-in, and it works with no event
+        // selected — the point is to read a UID, not to record a tap. Disarmed
+        // first, so it is one-shot even if a second badge arrives while the
+        // reading is on screen.
+        if (showNextBadgeId) {
+            showNextBadgeId = false
+            showBadgeId(uid)
+            return
+        }
         if (eventId == null) {
             status.text = getString(R.string.select_event_first)
             return
@@ -331,6 +347,36 @@ class MainActivity : AppCompatActivity() {
             tapBusy = true
             promptIdentity(hash)
         }
+    }
+
+    /** Shows one badge's raw id and drops it. Nothing is hashed, stored, logged
+     *  or exported — the reading exists for as long as the dialog does, so the
+     *  principal can hold a known badge's `External_Number` next to what the
+     *  reader actually sees and settle whether the two relate.
+     *
+     *  Selectable text on purpose: this number has to leave the tablet by being
+     *  copied or read aloud, and mis-transcribing it would answer the question
+     *  wrongly. */
+    private fun showBadgeId(uid: ByteArray) {
+        val r = BadgeId.describe(uid)
+        val view = TextView(this).apply {
+            text = getString(
+                R.string.badge_id_message,
+                r.byteLength, r.hex, r.hexReversed, r.decimal, r.decimalReversed)
+            setTextIsSelectable(true)
+            setTextColor(brand.foreground)
+            typeface = android.graphics.Typeface.MONOSPACE
+            val pad = (16 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+        }
+        tapBusy = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.badge_id_title)
+            .setView(view)
+            .setPositiveButton(android.R.string.ok, null)
+            .setOnDismissListener { tapBusy = false }
+            .show()
+        status.text = getString(R.string.badge_id_shown)
     }
 
     /** An unknown badge asks who it belongs to. With an imported roster that is
@@ -424,6 +470,7 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.setup_import_logo),
             getString(R.string.setup_reset_theme),
             getString(R.string.setup_import_roster),
+            getString(R.string.setup_show_badge_id),
             getString(R.string.setup_delete_event))
         AlertDialog.Builder(this)
             .setTitle(R.string.setup_title)
@@ -433,6 +480,10 @@ class MainActivity : AppCompatActivity() {
                     1 -> logoLauncher.launch(arrayOf("image/*"))
                     2 -> confirmResetTheme()
                     3 -> rosterLauncher.launch(arrayOf("*/*"))
+                    4 -> {
+                        showNextBadgeId = true
+                        status.text = getString(R.string.badge_id_armed)
+                    }
                     else -> confirmDeleteEvent()
                 }
             }
