@@ -15,6 +15,7 @@ import android.widget.ListView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -79,10 +80,14 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Android 15 (targetSdk 35) enforces edge-to-edge; older versions
+        // default to fitting system windows. Opting in everywhere makes the
+        // window behave identically on all supported versions, so the insets
+        // padding below is applied exactly once — without this, the status bar
+        // overlays the event/new-event/export row and the controls cannot be
+        // seen or tapped (Android 15), or the padding would double (≤14).
+        enableEdgeToEdge()
         setContentView(R.layout.activity_main)
-        // targetSdk 35 enforces edge-to-edge: without this, the system status
-        // bar overlays the event/new-event/export row and the nav bar overlays
-        // the status line — the controls exist but cannot be seen or tapped.
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.root)) { v, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
