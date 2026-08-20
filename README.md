@@ -66,6 +66,7 @@ events, kept off the surface that gets touched *during* one:
 - **Reset theme to neutral** — behind a confirmation, deletes the theme and logo
   files and repaints neutral immediately.
 - **Import Roster…** — as documented below.
+- **Show badge id on next tap** — the one-shot diagnostic, described below.
 - **Delete Event…** — the destructive one, deliberately at the bottom.
 
 This replaces copying files into `%LOCALAPPDATA%\BadgeCheckIn` by hand, which
@@ -125,7 +126,17 @@ Accepted CSV shapes — the header is sniffed, not positional:
   `Display Name`, `Employee Name`, `Person Name`; then a `First Name` +
   `Last Name` pair, joined with a space; then any header containing "name".
 - **Credential**: any header containing "credential" or "card"; one that also
-  carries a number word (`number`, `no`, `#`, `id`) wins.
+  carries a number word (`number`, `no`, `#`, `id`) wins. Failing that, a header
+  containing "external" **and** a number word — Virtual Keypad's real export
+  calls the card field `External_Number`. "External" on its own is not enough.
+- **Never selected**, and pinned by tests on both twins: `Number` (Virtual
+  Keypad's internal row id) and `Code` (**the user's keypad PIN**). Neither
+  carries a credential/card/external word, so neither can be chosen — a PIN
+  quietly treated as a badge number would be both wrong and a disclosure.
+- **Value normalization**: a leading `letters_` tag is stripped, so
+  `R_123456` reaches everything downstream as `123456`. Only the prefix goes;
+  what the remaining digits mean is the open question below, not something to
+  guess at here.
 - Quoted cells, embedded commas and newlines, CRLF or LF, and a UTF-8 BOM are
   all handled. Rows with no name, and repeats of a name already imported, are
   counted as skipped rather than guessed at. A file with no name column is
@@ -189,6 +200,37 @@ matters; nothing is recoverable afterwards.
 
 The Android twin does the same thing from its **⋮ Setup** menu.
 
+## Show badge id on next tap (diagnostic)
+
+Both apps carry a one-shot reading tool under Setup. Arm it and the **next**
+badge tapped shows its raw id instead of checking anyone in:
+
+```
+Bytes: 7
+
+Hex (as read):        045A3B2C1D0E6F
+Hex (byte-reversed):  6F0E1D2C3B5A04
+
+Decimal (as read):        1225110096514671
+Decimal (byte-reversed):  31259240873810436
+```
+
+Four readings because byte order is exactly the thing no access system
+documents, and a UID that looks unrelated read one way is the same number read
+the other.
+
+It exists to settle one question: does a Virtual Keypad `External_Number`
+(`R_123456`) relate to the UID the reader sees? Hold a known badge's number next
+to this block and you can see the answer or rule it out — Step 4 of
+`THURSDAY-HANDOFF.md`. Until that verdict exists, credential mapping stays off
+and every imported row falls to the name picker.
+
+**Nothing is stored.** The reading is not hashed, written, logged or exported;
+the badge is not enrolled and not checked in; the toggle disarms itself after
+that single tap, and it is never persisted, so it cannot survive into a later
+session and eat somebody's check-in. On Windows the text is selectable so the
+number can be copied rather than mis-transcribed.
+
 ## Use
 
 1. Plug in the reader, run the exe. Status bar shows "Reader ready".
@@ -226,6 +268,14 @@ The Android twin does the same thing from its **⋮ Setup** menu.
 - [ ] Machine with no network: everything above still works (local-only claim).
 - [ ] Theme applies: with a `theme.json` in place, title/colors/logo change;
       with it removed, the neutral default returns.
+- [ ] Roster import on the REAL Virtual Keypad export: the summary dialog must
+      say **Name column: Name** and **Credential column: External_Number**. If
+      it names `Code`, stop — that is the keypad PIN, and no build that does
+      that goes near a real roster.
+- [ ] Show badge id on next tap: arm it, tap a badge. The reading appears, the
+      person is **not** checked in and the headcount does not move; the next tap
+      after that checks in normally. Compare the four readings against that
+      badge's `External_Number` and send me both.
 - [ ] Roster import: a real export from the access system is accepted, the
       dialog names the columns it found, and the count adds up. A file with no
       name column, an empty file, and a 10 MB file are each refused with a

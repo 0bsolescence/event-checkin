@@ -42,7 +42,18 @@ public static class Roster
     /// then any header containing "name" (one not qualified by
     /// first/last/middle/nick wins over one that is).
     /// credential — any header containing "credential" or "card"; one that also
-    /// carries a number word (number, no, #, id) wins.
+    /// carries a number word (number, no, #, id) wins. Failing that, a header
+    /// containing "external" AND a number word — Virtual Keypad's real export
+    /// calls the card field <c>External_Number</c>. "External" alone is not
+    /// enough: the word is generic, and a column that is not a number cannot be
+    /// a credential.
+    /// <para>
+    /// What must NEVER be picked, and is pinned by tests: <c>Number</c> (Virtual
+    /// Keypad's internal row id) and <c>Code</c> (the user's keypad PIN).
+    /// Neither carries a credential/card/external word, so neither is a
+    /// candidate — and a PIN silently treated as a badge number would be both
+    /// wrong and a disclosure.
+    /// </para>
     /// </summary>
     public static Columns DetectColumns(IReadOnlyList<string> header)
     {
@@ -71,12 +82,17 @@ public static class Roster
             if (full < 0) full = IndexOf(c => c.Contains("name"));
         }
 
-        var candidates = Enumerable.Range(0, h.Count)
-            .Where(i => h[i].Contains("credential") || h[i].Contains("card")).ToList();
         var numbered = new Regex(@"number|\bno\b|#|\bid\b");
-        var credential = candidates.Count == 0
-            ? -1
-            : candidates.FirstOrDefault(i => numbered.IsMatch(h[i]), candidates[0]);
+        var named = Enumerable.Range(0, h.Count)
+            .Where(i => h[i].Contains("credential") || h[i].Contains("card")).ToList();
+        var external = Enumerable.Range(0, h.Count)
+            .Where(i => h[i].Contains("external") && numbered.IsMatch(h[i])).ToList();
+        // An explicitly named credential/card column always outranks the
+        // external one: a system that says "card number" means it, while
+        // "external" only usually does.
+        var credential = named.FirstOrDefault(i => numbered.IsMatch(h[i]), -1);
+        if (credential < 0 && named.Count > 0) credential = named[0];
+        if (credential < 0 && external.Count > 0) credential = external[0];
 
         return new Columns(full, first, last, credential);
     }
@@ -103,8 +119,8 @@ public static class Roster
                 skipped++;
                 continue;
             }
-            var credential = cols.Credential >= 0 ? Cell(row, cols.Credential) : null;
-            entries.Add(new Entry(name, string.IsNullOrEmpty(credential) ? null : credential));
+            var credential = cols.Credential >= 0 ? NormalizeCredential(Cell(row, cols.Credential)) : null;
+            entries.Add(new Entry(name, credential));
         }
         return new Result(
             entries,
@@ -112,6 +128,26 @@ public static class Roster
             Cell(header, cols.Credential),
             skipped,
             null);
+    }
+
+    /// <summary>
+    /// Strips a leading alphabetic tag from a credential value: Virtual Keypad
+    /// writes <c>R_123456</c>, where only the digits relate to the card. Done
+    /// once here, at import, so everything downstream — the transform included —
+    /// sees the number and never the tag.
+    /// <para>
+    /// Only a leading <c>letters_</c> prefix is removed. The rest of the value is
+    /// left exactly as it is: what those digits MEAN is the open question Step 4
+    /// answers, and this is not the place to guess at it.
+    /// </para>
+    /// </summary>
+    /// <returns>The normalized value, or null when there is nothing left to use.</returns>
+    public static string? NormalizeCredential(string? raw)
+    {
+        var s = raw?.Trim() ?? "";
+        if (s.Length == 0) return null;
+        s = Regex.Replace(s, "^[A-Za-z]+_", "");
+        return s.Length == 0 ? null : s;
     }
 
     private static string? Cell(IReadOnlyList<string> row, int index) =>

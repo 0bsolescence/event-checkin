@@ -47,6 +47,11 @@ public sealed class MainWindow : Window
     // so queued reader callbacks would otherwise open a second prompt).
     private bool _tapBusy;
 
+    // Armed by Setup → Show badge id on next tap, consumed by the very next
+    // read. In-memory only and never persisted: a diagnostic that outlives the
+    // session it was armed in is one that eats somebody's check-in later.
+    private bool _showNextBadgeId;
+
     private const string EnrollText = "New badge — enter this person's name:";
 
     /// <summary>A personnel roster is a few thousand names; anything larger is not one.</summary>
@@ -285,6 +290,12 @@ public sealed class MainWindow : Window
         menu.Items.Add(MakeMenuItem("Reset theme to neutral", ResetTheme));
         menu.Items.Add(new Separator());
         menu.Items.Add(MakeMenuItem("Import Roster…", ImportRoster));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MakeMenuItem("Show badge id on next tap", () =>
+        {
+            _showNextBadgeId = true;
+            _status.Text = "Armed — the NEXT badge tapped will show its id instead of checking in.";
+        }));
         menu.Items.Add(new Separator());
         menu.Items.Add(MakeMenuItem("Delete Event…", DeleteEvent));
         return menu;
@@ -611,6 +622,17 @@ public sealed class MainWindow : Window
     private void OnTap(byte[] uid)
     {
         if (_tapBusy) return;
+        // The diagnostic runs BEFORE anything else touches the badge: no hash,
+        // no lookup, no enrollment, no check-in, and it works with no event
+        // selected — the point is to read a UID, not to record a tap. Disarmed
+        // first, so it is one-shot even if a second badge arrives while the
+        // reading is on screen.
+        if (_showNextBadgeId)
+        {
+            _showNextBadgeId = false;
+            ShowBadgeId(uid);
+            return;
+        }
         if (_eventId is not long ev) { _status.Text = "Create/select an event first."; return; }
         var hash = _db.HashUid(uid);
         var name = _db.LookupName(hash);
@@ -636,6 +658,56 @@ public sealed class MainWindow : Window
         }
         else _status.Text = $"{name} is already checked in.";
         UpdateCount();
+    }
+
+    /// <summary>Shows one badge's raw id and drops it. Nothing is hashed, stored,
+    /// logged or exported — the reading exists for as long as the window does, so
+    /// the principal can hold a known badge's <c>External_Number</c> next to what
+    /// the reader actually sees and settle whether the two relate.
+    /// <para>
+    /// A read-only TextBox rather than a MessageBox, because this number has to
+    /// leave the machine by being copied, and mis-transcribing it would answer
+    /// the question wrongly.
+    /// </para>
+    /// </summary>
+    private void ShowBadgeId(byte[] uid)
+    {
+        var r = BadgeId.Describe(uid);
+        var text =
+            $"Bytes: {r.ByteLength}\r\n\r\n" +
+            $"Hex (as read):        {r.Hex}\r\n" +
+            $"Hex (byte-reversed):  {r.HexReversed}\r\n\r\n" +
+            $"Decimal (as read):        {r.Decimal}\r\n" +
+            $"Decimal (byte-reversed):  {r.DecimalReversed}\r\n\r\n" +
+            "Nothing was stored and nobody was checked in. The next tap behaves normally.";
+
+        var box = new TextBox
+        {
+            Text = text, IsReadOnly = true, FontFamily = new System.Windows.Media.FontFamily("Consolas"),
+            FontSize = 16, TextWrapping = TextWrapping.NoWrap, BorderThickness = new Thickness(0),
+            Background = _theme.BackgroundBrush, Foreground = _theme.ForegroundBrush,
+            AcceptsReturn = true, HorizontalScrollBarVisibility = ScrollBarVisibility.Auto
+        };
+        var close = MakeButton("Close");
+        close.HorizontalAlignment = HorizontalAlignment.Right;
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(box);
+        panel.Children.Add(close);
+        var dlg = new Window
+        {
+            Title = "Badge id", Width = 560, SizeToContent = SizeToContent.Height,
+            ResizeMode = ResizeMode.NoResize, ShowInTaskbar = false,
+            Owner = IsVisible ? this : null,
+            WindowStartupLocation = IsVisible
+                ? WindowStartupLocation.CenterOwner : WindowStartupLocation.CenterScreen,
+            Content = panel, Background = _theme.BackgroundBrush
+        };
+        close.IsCancel = true;
+        close.Click += (_, _) => dlg.Close();
+        _tapBusy = true;
+        try { dlg.ShowDialog(); }
+        finally { _tapBusy = false; }
+        _status.Text = "Badge id shown — nothing was stored, and the diagnostic is off again.";
     }
 
     /// <summary>An unknown badge asks who it belongs to. With an imported roster

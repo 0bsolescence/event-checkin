@@ -46,11 +46,22 @@ session can produce.
   retrieve, confirm it opens in a spreadsheet cleanly.
 
 ### Step 4 — The credential-number question (parked from tonight, optional)
-- In Virtual Keypad's Users admin, find your own user, note your credential
-  number. Compare it to the id the tablet showed for your badge in Step 1.
-- Match → we can build "Import roster" so names resolve without enroll-on-tap.
-  No match → enroll-on-first-tap stays the model. Either is fine; this just
-  tells us which. Bring me both numbers and I'll tell you which world we're in.
+- In Virtual Keypad's Users admin, find your own user, note the
+  **`External_Number`** on your record — the real export writes it as
+  `R_123456`, and only those digits can relate to the card.
+- Then read what the tablet actually sees: **Setup (⋮) → Show badge id on next
+  tap**, tap your badge once. It prints the UID as hex and as a decimal number,
+  each **both ways round**, because which end a system starts from is exactly
+  what nobody writes down. Nothing is stored and nobody is checked in; the
+  toggle disarms itself after that one tap. (The Windows app has the same item
+  under Setup…, once its reader arrives.)
+- Bring me both numbers — the `External_Number` and the whole badge-id block.
+  If any of the four readings lines up with those six digits, that IS the
+  transform and I turn credential mapping on. If none does, enroll-on-first-tap
+  with the roster picker stays the model, which already works. Either answer is
+  fine; this just tells us which world we are in.
+- **Do not photograph or transcribe anyone else's badge.** One badge, yours,
+  is the whole test.
 
 ## What NOT to spend the session on
 - The Windows exe: needs the OMNIKEY reader, which hasn't arrived. Skip.
