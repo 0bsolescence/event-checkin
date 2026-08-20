@@ -57,7 +57,15 @@ public sealed class PcscReader : IDisposable
 
             if (reader is null)
             {
-                reader = FirstReaderOrNull();
+                reader = FirstReaderOrNull(out bool contextDead);
+                if (contextDead)
+                {
+                    // Service died while we were polling for a reader: the
+                    // context is dead too. Drop it; EnsureContext retries.
+                    SCardReleaseContext(_context);
+                    _context = IntPtr.Zero;
+                    continue;
+                }
                 if (reader is null)
                 {
                     StatusChanged?.Invoke("No reader detected — plug in the USB reader.");
@@ -75,7 +83,7 @@ public sealed class PcscReader : IDisposable
 
             int rc = SCardGetStatusChange(_context, 1000, ref state, 1);
             if (rc == ErrTimeout) continue;
-            if (rc == ErrNoService || rc == ErrServiceStopped || rc == ErrInvalidHandle)
+            if (IsContextDead(rc))
             {
                 // The service died (last reader unplugged): the context is dead
                 // with it. Drop it and let EnsureContext re-establish.
@@ -100,12 +108,17 @@ public sealed class PcscReader : IDisposable
         }
     }
 
-    private string? FirstReaderOrNull()
+    private string? FirstReaderOrNull(out bool contextDead)
     {
+        contextDead = false;
         uint len = 0;
-        if (SCardListReaders(_context, null, null, ref len) != 0 || len < 2) return null;
+        int rc = SCardListReaders(_context, null, null, ref len);
+        if (IsContextDead(rc)) { contextDead = true; return null; }
+        if (rc != 0 || len < 2) return null;
         var buf = new byte[len];
-        if (SCardListReaders(_context, null, buf, ref len) != 0) return null;
+        rc = SCardListReaders(_context, null, buf, ref len);
+        if (IsContextDead(rc)) { contextDead = true; return null; }
+        if (rc != 0) return null;
         // Multi-string: NUL-separated names, double-NUL terminated.
         var first = System.Text.Encoding.ASCII.GetString(buf).Split('\0', StringSplitOptions.RemoveEmptyEntries);
         return first.Length > 0 ? first[0] : null;
@@ -152,6 +165,11 @@ public sealed class PcscReader : IDisposable
     private const int ErrNoService = unchecked((int)0x8010001D);
     private const int ErrServiceStopped = unchecked((int)0x8010001E);
     private const int ErrInvalidHandle = unchecked((int)0x80100003);
+
+    /// <summary>Result codes meaning the PC/SC context itself is dead (service
+    /// stopped or handle invalidated) — recovery is release + re-establish.</summary>
+    private static bool IsContextDead(int rc) =>
+        rc is ErrNoService or ErrServiceStopped or ErrInvalidHandle;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
     private struct ScardReaderState
