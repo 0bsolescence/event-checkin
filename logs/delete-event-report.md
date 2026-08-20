@@ -224,6 +224,14 @@ Install the new APK over the existing one (do **not** uninstall first).
 - [ ] Delete Event…: **No** is the default button; Escape and Enter both
       cancel; Yes deletes the event and its attendance only.
 
+## What happened next, the same day
+
+A charter extension added the Windows Setup menu (with theme import that applies
+at runtime) and **End Event** on both twins. That work moved **Delete Event** off
+the Windows toolbar into the new Setup menu, so the two platforms now put it in
+the same place. Everything else in this report still holds. See
+`setup-menu-end-event-report.md`.
+
 ## Still gating everything
 
 Unchanged from the Thursday hand-off and the theming report: **UID stability**
